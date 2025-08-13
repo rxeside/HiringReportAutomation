@@ -5,7 +5,7 @@ from huntflow_api_client import HuntflowAPI
 from huntflow_api_client.tokens.token import ApiToken
 import httpx
 
-HUNTFLOW_API_TOKEN = "e296077ea7429c6650f3be98a634f0a8d25eaed39391ecef74391c0ecf2a8982"
+HUNTFLOW_API_TOKEN = ""
 
 OUTPUT_FILE_NAME = "voronka_kandidatov.xlsx"
 
@@ -108,10 +108,6 @@ def create_xlsx_report(data):
 
 
 async def main():
-    if HUNTFLOW_API_TOKEN == "ВАШ_НАСТОЯЩИЙ_ТОКЕН":
-        print("Ошибка: Пожалуйста, укажите ваш токен в скрипте.")
-        return
-
     api_client = HuntflowAPI(
         base_url="https://api.huntflow.ru",
         token=ApiToken(access_token=HUNTFLOW_API_TOKEN)
