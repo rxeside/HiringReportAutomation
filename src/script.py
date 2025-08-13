@@ -10,7 +10,7 @@ HUNTFLOW_API_TOKEN = "e296077ea7429c6650f3be98a634f0a8d25eaed39391ecef74391c0ecf
 OUTPUT_FILE_NAME = "voronka_kandidatov_combined.xlsx"
 
 HUNTFLOW_STATUSES_TO_COLUMNS = {
-    "Новые": "просмотрено резюме",
+    "Новые": "новые",
     "Коннект": "коннект",
     "Интервью с HR": "интервью с HR",
     "Интервью с заказчиком": "интервью с заказчиком",
