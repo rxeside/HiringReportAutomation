@@ -4,13 +4,31 @@ import openpyxl
 from huntflow_api_client import HuntflowAPI
 from huntflow_api_client.tokens.token import ApiToken
 import httpx
+from openpyxl.styles import PatternFill
 
-HUNTFLOW_API_TOKEN = "e296077ea7429c6650f3be98a634f0a8d25eaed39391ecef74391c0ecf2a8982"
+HUNTFLOW_API_TOKEN = "a5ac927e15662b47b55c0f857c499cf805b543e29532a586d8ef3e384e14e605"
 
-OUTPUT_FILE_NAME = "voronka_kandidatov_combined.xlsx"
+OUTPUT_FILE_NAME = "voronka_kandidatov_cumulative.xlsx"
+
+PRIORITY_VACANCIES = {
+    "РОП  NA AM",
+    "Директор по персоналу 2025",
+    "Руководитель проектов в маркетинг",
+    "Менеджер по прогреву воронки",
+}
+
+FUNNEL_STAGES_ORDER = [
+    "просмотрено резюме",
+    "коннект",
+    "интервью с HR",
+    "интервью с заказчиком",
+    "финальное интервью",
+    "выставлен оффер",
+    "вышел на работу",
+]
 
 HUNTFLOW_STATUSES_TO_COLUMNS = {
-    "Новые": "новые",
+    "Новые": "просмотрено резюме",
     "Коннект": "коннект",
     "Интервью с HR": "интервью с HR",
     "Интервью с заказчиком": "интервью с заказчиком",
@@ -21,20 +39,10 @@ HUNTFLOW_STATUSES_TO_COLUMNS = {
 
 
 async def get_total_applicants_on_stage(api_client, account_id, vacancy_id, status_id):
-    """
-    (для чисел вне скобок)
-    Получает ОБЩЕЕ число кандидатов на этапе, используя applicants/search.
-    """
+    """(Для чисел вне скобок) Получает ОБЩЕЕ число кандидатов на этапе."""
     try:
-        search_params = {
-            "vacancy": [vacancy_id],
-            "status": [status_id],
-            "only_current_status": "false",
-            "count": 1
-        }
-        response = await api_client.request(
-            "GET", f"/accounts/{account_id}/applicants/search", params=search_params
-        )
+        search_params = {"vacancy": [vacancy_id], "status": [status_id], "only_current_status": "false", "count": 1}
+        response = await api_client.request("GET", f"/accounts/{account_id}/applicants/search", params=search_params)
         data = response.json()
         return data.get("total_items", 0)
     except Exception as e:
@@ -69,16 +77,14 @@ async def get_huntflow_data(api_client):
             vacancy_position = vacancy["position"]
             print(f"  - Обрабатываю вакансию: «{vacancy_position}»")
 
-            funnel_row = {"название вакансии": vacancy_position, "комментарий": ""}
+            is_priority = vacancy_position in PRIORITY_VACANCIES
+            funnel_row = {"название вакансии": vacancy_position, "комментарий": "", "is_priority": is_priority}
             for column_name in HUNTFLOW_STATUSES_TO_COLUMNS.values():
                 funnel_row[column_name] = {"total": 0, "current": 0}
 
-            # (для чисел в скобках)
-            # Получаем ТЕКУЩЕЕ число кандидатов на этапах
             applicants_response = await api_client.request("GET", f"/accounts/{account_id}/applicants",
                                                            params={"vacancy": vacancy_id})
             applicants_data = applicants_response.json()
-
             for applicant in applicants_data.get("items", []):
                 for link in applicant.get("links", []):
                     if link.get("vacancy") == vacancy_id:
@@ -89,8 +95,15 @@ async def get_huntflow_data(api_client):
                             funnel_row[column_name]["current"] += 1
                         break
 
-            # (для чисел вне скобок)
-            # Получаем ОБЩЕЕ число кандидатов для каждого этапа.
+            print("    - Рассчитываю кумулятивную воронку...")
+            reversed_stages = list(reversed(FUNNEL_STAGES_ORDER))
+            for i in range(1, len(reversed_stages)):
+                current_stage_name = reversed_stages[i]
+                next_stage_name = reversed_stages[i - 1]
+
+                if current_stage_name in funnel_row and next_stage_name in funnel_row:
+                    funnel_row[current_stage_name]["current"] += funnel_row[next_stage_name]["current"]
+
             print(f"    - Получаю исторические данные по этапам...")
             for status_hf_name, column_name in HUNTFLOW_STATUSES_TO_COLUMNS.items():
                 status_id = status_name_to_id_map.get(status_hf_name)
@@ -100,6 +113,7 @@ async def get_huntflow_data(api_client):
 
             all_vacancies_data.append(funnel_row)
 
+        all_vacancies_data.sort(key=lambda x: not x.get('is_priority', False))
         return all_vacancies_data
 
     except httpx.HTTPStatusError as e:
@@ -122,7 +136,8 @@ def create_xlsx_report(data):
     workbook = openpyxl.Workbook()
     sheet = workbook.active
     sheet.title = "Воронка кандидатов"
-    headers = ["название вакансии"] + list(HUNTFLOW_STATUSES_TO_COLUMNS.values()) + ["комментарий"]
+    priority_fill = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
+    headers = ["название вакансии"] + FUNNEL_STAGES_ORDER + ["комментарий"]
     sheet.append(headers)
 
     for row_data in data:
@@ -137,6 +152,9 @@ def create_xlsx_report(data):
             else:
                 row_to_append.append(cell_data if cell_data is not None else "")
         sheet.append(row_to_append)
+        if row_data.get('is_priority', False):
+            for cell in sheet[sheet.max_row]:
+                cell.fill = priority_fill
 
     try:
         workbook.save(OUTPUT_FILE_NAME)
@@ -146,14 +164,7 @@ def create_xlsx_report(data):
 
 
 async def main():
-    if not HUNTFLOW_API_TOKEN or HUNTFLOW_API_TOKEN == "YOUR_ACCESS_TOKEN":
-        print("ОШИБКА: Пожалуйста, укажите ваш токен доступа в переменной HUNTFLOW_API_TOKEN.")
-        return
-
-    api_client = HuntflowAPI(
-        base_url="https://api.huntflow.ru",
-        token=ApiToken(access_token=HUNTFLOW_API_TOKEN)
-    )
+    api_client = HuntflowAPI(base_url="https://api.huntflow.ru", token=ApiToken(access_token=HUNTFLOW_API_TOKEN))
     funnel_data = await get_huntflow_data(api_client)
     if funnel_data:
         create_xlsx_report(funnel_data)
