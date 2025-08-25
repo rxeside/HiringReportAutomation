@@ -120,19 +120,38 @@ async def get_huntflow_data(api_client):
         status_name_to_id_map = {status["name"]: status["id"] for status in statuses_data.get("items", [])}
         status_id_to_name_map = {v: k for k, v in status_name_to_id_map.items()}
 
-        vacancies_response = await api_client.request("GET", f"/accounts/{account_id}/vacancies",
-                                                      params={"opened": "true"})
-        vacancies_data = vacancies_response.json()
-        all_vacancies_data = []
-        print(f"\nНайдено {len(vacancies_data.get('items', []))} активных вакансий. Начинаю сбор данных...")
+        all_vacancies = []
+        current_page = 1
+        total_pages = 1
 
-        for vacancy in vacancies_data.get("items", []):
+        print("\nЗагружаю список всех активных вакансий...")
+        while current_page <= total_pages:
+            params = {"opened": "true", "count": 100, "page": current_page}
+            vacancies_response = await api_client.request("GET", f"/accounts/{account_id}/vacancies", params=params)
+            vacancies_data = vacancies_response.json()
+
+            items = vacancies_data.get("items", [])
+            if not items:
+                break
+
+            all_vacancies.extend(items)
+
+            if current_page == 1:
+                total_pages = vacancies_data.get("total_pages", 1)
+                print(f"Всего найдено страниц с вакансиями: {total_pages}")
+
+            current_page += 1
+
+        all_vacancies_data = []
+        print(f"\nНайдено {len(all_vacancies)} активных вакансий. Начинаю сбор данных...")
+
+        for vacancy in all_vacancies:
             vacancy_id = vacancy["id"]
             vacancy_position = vacancy["position"]
 
             # заглушка для поиска только приоритетных
-            # if vacancy_position not in PRIORITY_VACANCIES:
-            #     continue
+            if vacancy_position not in PRIORITY_VACANCIES:
+                continue
 
             print(f"  - Обрабатываю вакансию: «{vacancy_position}»")
 
