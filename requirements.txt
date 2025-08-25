@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+httpx
+huntflow-api-client
+openpyxl
+Jinja2
+python-multipart
