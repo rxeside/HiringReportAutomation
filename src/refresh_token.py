@@ -2,7 +2,7 @@ import requests
 import json
 from datetime import timedelta
 
-EXISTING_REFRESH_TOKEN = "c9bc7637f87274bd54bca97f12062f429658b1a04a300d4c1c86000c0f3e7051"
+EXISTING_REFRESH_TOKEN = "4bd9decc764775ecad0ca754109e6adf30b3925015a7aa9867cd1e3d528f7054"
 
 REFRESH_URL = "https://api.huntflow.ru/v2/token/refresh"
 
@@ -11,8 +11,8 @@ def update_token():
     """
     Отправляет запрос на обновление токена и выводит результат.
     """
-    if not EXISTING_REFRESH_TOKEN or EXISTING_REFRESH_TOKEN == "YOUR_REFRESH_TOKEN_HERE":
-        print("ОШИБКА: Пожалуйста, вставьте ваш refresh_token в переменную EXISTING_REFRESH_TOKEN.")
+    if not EXISTING_REFRESH_TOKEN:
+        print("ОШИБКА: Проверьте ваш refresh_token")
         return
 
     payload = {
