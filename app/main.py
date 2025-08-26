@@ -23,7 +23,7 @@ else:
 @app.get("/", response_class=HTMLResponse)
 async def show_report_table(request: Request):
     """Отображает главную страницу с таблицей отчета."""
-    if not HUNTFLOW_API_TOKEN or HUNTFLOW_API_TOKEN == "ВАШ_ДЛИННЫЙ_ТОКЕН_ЗДЕСЬ":
+    if not HUNTFLOW_API_TOKEN:
         return templates.TemplateResponse("error.html", {
             "request": request,
             "error_message": "Токен не задан в файле app/config.py"
@@ -44,7 +44,7 @@ async def show_report_table(request: Request):
 @app.get("/download-report")
 async def download_report_endpoint():
     """Генерирует и отдает отчет в формате XLSX."""
-    if not HUNTFLOW_API_TOKEN or HUNTFLOW_API_TOKEN == "ВАШ_ДЛИННЫЙ_ТОКЕН_ЗДЕСЬ":
+    if not HUNTFLOW_API_TOKEN:
         raise HTTPException(status_code=500, detail="Токен не задан в файле app/config.py.")
 
     logging.info("Запрос на скачивание XLSX. Начинаю сбор данных...")
