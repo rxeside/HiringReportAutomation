@@ -8,3 +8,4 @@ services:
     volumes:
       - ./app:/app/app
       - ./templates:/app/templates
+      - ./cache:/app/cache

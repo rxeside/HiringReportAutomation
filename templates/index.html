@@ -22,6 +22,14 @@
 <body>
     <div class="container">
         <div class="header">
+            <div class="last-updated">
+                {% if last_updated %}
+                    Последнее обновление: {{ last_updated.strftime('%d.%m.%Y %H:%M:%S') }} UTC
+                {% else %}
+                    Данные еще не обновлялись.
+                {% endif %}
+                <button id="refreshButton" class="download-btn" style="margin-left: 15px; background-color: #007bff;">Обновить сейчас</button>
+            </div>
             <h1>Отчет по воронке найма</h1>
             <a href="/download-report" class="download-btn">Скачать XLSX</a>
         </div>
@@ -54,5 +62,28 @@
             </tbody>
         </table>
     </div>
+    <script>
+        document.getElementById('refreshButton').addEventListener('click', async () => {
+            const button = document.getElementById('refreshButton');
+            button.disabled = true;
+            button.textContent = 'Обновление...';
+            try {
+                const response = await fetch('/refresh-report', { method: 'POST' });
+                const data = await response.json();
+                if (response.ok) {
+                    alert(data.message + '\nСтраница будет перезагружена.');
+                    window.location.reload(); // Перезагружаем страницу для отображения свежих данных
+                } else {
+                    alert('Ошибка при обновлении: ' + (data.detail || 'Неизвестная ошибка'));
+                }
+            } catch (error) {
+                console.error('Ошибка:', error);
+                alert('Произошла ошибка при отправке запроса на обновление.');
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Обновить сейчас';
+            }
+        });
+    </script>
 </body>
 </html>

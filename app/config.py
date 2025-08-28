@@ -1,1 +1,4 @@
 HUNTFLOW_API_TOKEN = "91ad37c4954e073caada3d27de0dbc515f5b4d84aa97e4938003e446bacbc172"
+REPORT_CACHE_FILE = "report_cache.json"
+UPDATE_INTERVAL_SECONDS = 3600  # час
+CACHE_FILE_PATH = "cache/report_cache.json"
