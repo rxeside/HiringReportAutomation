@@ -33,7 +33,7 @@ async def show_report_table(request: Request):
 
     logging.info("Запрос на отображение отчета. Начинаю сбор данных...")
     report_data = await cache_manager.get_cached_data()
-    last_updated = cache_manager.get_last_updated_time()
+    last_updated = cache_manager.get_last_updated_time_msk()
     headers = ["Название вакансии"] + report_generator.FUNNEL_STAGES_ORDER + ["Комментарий"]
 
     return templates.TemplateResponse("index.html", {

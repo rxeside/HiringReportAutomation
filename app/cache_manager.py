@@ -1,6 +1,6 @@
 import json
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 import aiofiles
 from . import config, report_generator
@@ -71,6 +71,12 @@ async def update_cached_data(token: str):
         else:
             logging.warning("Не удалось обновить кэшированные данные. Использую старые.")
         return _cached_data
+
+def get_last_updated_time_msk():
+    if _last_updated:
+        msk_offset = timedelta(hours=3)
+        return _last_updated + msk_offset
+    return None
 
 async def get_cached_data():
     if _cached_data is None:
