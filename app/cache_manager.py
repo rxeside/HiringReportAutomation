@@ -3,7 +3,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 import logging
 import aiofiles
-from . import config, report_generator
+from . import config, report_generator, comments_manager
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -42,7 +42,6 @@ async def save_cache(data, last_updated):
         return
 
     try:
-        # Создаем директорию, если она не существует
         cache_dir = "/".join(config.CACHE_FILE_PATH.split("/")[:-1])
         if cache_dir:
             import os
@@ -62,8 +61,15 @@ async def update_cached_data(token: str):
     global _cached_data, _last_updated
     async with _cache_lock:
         logging.info("Начинаю обновление кэшированных данных...")
-        new_data = await report_generator.fetch_and_process_data(token, {})
+
+        new_data = await report_generator.fetch_and_process_data(token)
         if new_data is not None:
+            all_existing_comments = await comments_manager.get_all_comments()
+            for row in new_data:
+                vacancy_name = row.get('название вакансии')
+                if vacancy_name:
+                    row['комментарий'] = all_existing_comments.get(vacancy_name, "")
+
             _cached_data = new_data
             _last_updated = datetime.now(timezone.utc)
             await save_cache(_cached_data, _last_updated)

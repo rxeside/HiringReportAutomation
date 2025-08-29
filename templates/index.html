@@ -17,6 +17,21 @@
         .download-btn { background-color: #28a745; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px; font-weight: bold; }
         .download-btn:hover { background-color: #218838; }
         .no-data { text-align: center; padding: 50px; font-size: 1.2em; color: #6c757d; }
+        .editable-comment {
+            min-width: 150px;
+            display: block;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .editing-comment {
+            width: 100%;
+            min-height: 50px;
+            box-sizing: border-box;
+            padding: 8px;
+            border: 1px solid #007bff;
+            border-radius: 4px;
+            resize: vertical;
+        }
     </style>
 </head>
 <body>
@@ -49,7 +64,9 @@
                             {% for stage in ['коннект', 'интервью с HR', 'интервью с заказчиком', 'финальное интервью', 'выставлен оффер', 'вышел на работу'] %}
                                 <td>{{ row[stage].total }} ({{ row[stage].current }})</td>
                             {% endfor %}
-                            <td>{{ row['комментарий'] }}</td>
+                            <td class="comment-cell" data-vacancy-name="{{ row['название вакансии'] }}">
+                                <span class="editable-comment">{{ row['комментарий'] }}</span>
+                            </td>
                         </tr>
                     {% endfor %}
                 {% else %}
@@ -72,7 +89,7 @@
                 const data = await response.json();
                 if (response.ok) {
                     alert(data.message + '\nСтраница будет перезагружена.');
-                    window.location.reload(); // Перезагружаем страницу для отображения свежих данных
+                    window.location.reload();
                 } else {
                     alert('Ошибка при обновлении: ' + (data.detail || 'Неизвестная ошибка'));
                 }
@@ -83,6 +100,150 @@
                 button.disabled = false;
                 button.textContent = 'Обновить сейчас';
             }
+        });
+
+        let activeTextarea = null;
+
+        async function finishEditing() {
+            if (!activeTextarea) return;
+
+            const textarea = activeTextarea;
+            const cell = textarea.closest('.comment-cell');
+            const commentSpan = cell.querySelector('.editable-comment');
+            const originalComment = textarea.dataset.originalValue;
+            const newComment = textarea.value.trim();
+
+            document.removeEventListener('click', handleClickOutside);
+            document.removeEventListener('keydown', handleGlobalKeyDown, true);
+            activeTextarea = null;
+
+            const restoreView = (text) => {
+                if (textarea.parentNode) {
+                    textarea.parentNode.removeChild(textarea);
+                }
+                commentSpan.textContent = text;
+                commentSpan.style.display = '';
+            };
+
+            if (newComment === originalComment) {
+                restoreView(originalComment);
+                return;
+            }
+
+            try {
+                const vacancyName = cell.dataset.vacancyName;
+                const response = await fetch('/update-comment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vacancy_name: vacancyName, comment: newComment })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    restoreView(newComment);
+                } else {
+                    alert('Ошибка при сохранении: ' + (data.detail || 'Неизвестная ошибка'));
+                    restoreView(originalComment);
+                }
+            } catch (error) {
+                alert('Произошла сетевая ошибка. Изменения не сохранены.');
+                restoreView(originalComment);
+            }
+        }
+
+        function handleClickOutside(event) {
+            if (activeTextarea && !activeTextarea.contains(event.target)) {
+                finishEditing();
+            }
+        }
+
+        function handleGlobalKeyDown(event) {
+            if (!activeTextarea) return;
+
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                finishEditing();
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                activeTextarea.value = activeTextarea.dataset.originalValue;
+                finishEditing();
+            }
+        }
+
+         document.addEventListener('DOMContentLoaded', () => {
+            const tableBody = document.querySelector('table tbody');
+            if (!tableBody) return;
+
+            tableBody.addEventListener('click', function(event) {
+                const cell = event.target.closest('.comment-cell');
+
+                if (!cell || cell.querySelector('textarea')) {
+                    return;
+                }
+
+                const span = cell.querySelector('.editable-comment');
+                if (!span) return;
+
+                const originalComment = span.textContent.trim();
+                const vacancyName = cell.dataset.vacancyName;
+
+                const textarea = document.createElement('textarea');
+                textarea.className = 'editing-comment';
+                textarea.value = originalComment;
+
+                span.style.display = 'none';
+                cell.appendChild(textarea);
+
+                textarea.focus();
+                textarea.select();
+
+                const saveAndExit = async () => {
+                    const newComment = textarea.value.trim();
+
+                    if (textarea.parentNode) {
+                        cell.removeChild(textarea);
+                    }
+
+                    span.style.display = '';
+
+                    if (newComment === originalComment) {
+                        span.textContent = originalComment;
+                        return;
+                    }
+
+                    span.textContent = newComment;
+
+                    try {
+                        const response = await fetch('/update-comment', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                vacancy_name: vacancyName,
+                                comment: newComment
+                            })
+                        });
+
+                        if (!response.ok) {
+                            alert('Не удалось сохранить комментарий на сервере.');
+                            span.textContent = originalComment;
+                        }
+                    } catch (error) {
+                        alert('Ошибка сети. Не удалось сохранить комментарий.');
+                        span.textContent = originalComment;
+                    }
+                };
+
+                textarea.addEventListener('blur', saveAndExit);
+
+                textarea.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        textarea.blur();
+                    } else if (e.key === 'Escape') {
+                        textarea.value = originalComment;
+                        textarea.blur();
+                    }
+                });
+            });
         });
     </script>
 </body>

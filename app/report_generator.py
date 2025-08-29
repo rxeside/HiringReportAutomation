@@ -87,7 +87,7 @@ async def get_factual_weekly_funnel_counts(api_client, account_id, vacancy_id, s
     return weekly_factual_counts
 
 
-async def fetch_and_process_data(token: str, all_comments: dict):
+async def fetch_and_process_data(token: str):
     """Главная функция для получения и обработки данных."""
     if not token:
         logging.error("Токен Huntflow не предоставлен.")
@@ -131,13 +131,12 @@ async def fetch_and_process_data(token: str, all_comments: dict):
 
             # TODO: сделать на страничке кнопку фильтра только по приоритетным вакансиям
             if vacancy_position not in PRIORITY_VACANCIES: continue
-            saved_comment = all_comments.get(vacancy_position, "")
 
             vacancy_id = vacancy["id"]
             logging.info(f"  - Обрабатываю вакансию: «{vacancy_position}»")
 
             is_priority = vacancy_position in PRIORITY_VACANCIES
-            funnel_row = {"название вакансии": vacancy_position, "комментарий": saved_comment, "is_priority": is_priority}
+            funnel_row = {"название вакансии": vacancy_position, "is_priority": is_priority}
             for column_name in FUNNEL_STAGES_ORDER:
                 funnel_row[column_name] = {"total": 0, "current": 0}
 

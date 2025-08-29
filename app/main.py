@@ -4,10 +4,11 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 import logging
-from . import report_generator, config, cache_manager
+from . import report_generator, config, cache_manager, comments_manager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import aiofiles
 import json
+from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -21,6 +22,9 @@ if HUNTFLOW_API_TOKEN:
 else:
     logging.error("ВНИМАНИЕ: Токен НЕ найден или не изменен в файле app/config.py")
 
+class CommentUpdateRequest(BaseModel):
+    vacancy_name: str
+    comment: str
 
 @app.get("/", response_class=HTMLResponse)
 async def show_report_table(request: Request):
@@ -75,12 +79,31 @@ async def refresh_report_endpoint():
     await cache_manager.update_cached_data(HUNTFLOW_API_TOKEN)
     return {"message": "Отчет успешно обновлен!"}
 
+
+@app.post("/update-comment")
+async def update_comment_endpoint(request_data: CommentUpdateRequest):
+    """Обновляет комментарий для конкретной вакансии."""
+    logging.info(f"Получен запрос на обновление комментария для вакансии: '{request_data.vacancy_name}'")
+    try:
+        await comments_manager.update_comment(request_data.vacancy_name, request_data.comment)
+
+        return {"message": "Комментарий успешно сохранен."}
+    except Exception as e:
+        logging.error(f"Ошибка при сохранении комментария: {e}")
+        raise HTTPException(status_code=500, detail="Не удалось сохранить комментарий.")
+
 scheduler = AsyncIOScheduler()
 
 @app.on_event("startup")
 async def startup_event():
     logging.info("Инициализация кэша и планировщика задач...")
+
+    await comments_manager.load_comments()
     await cache_manager.load_cache()
+
+    #if HUNTFLOW_API_TOKEN:
+    #   await cache_manager.update_cached_data(HUNTFLOW_API_TOKEN)
+
     scheduler.add_job(
         cache_manager.update_cached_data,
         "interval",
