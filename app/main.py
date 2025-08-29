@@ -87,10 +87,17 @@ async def update_comment_endpoint(request_data: CommentUpdateRequest):
     try:
         await comments_manager.update_comment(request_data.vacancy_name, request_data.comment)
 
+        current_cache = await cache_manager.get_cached_data()
+        for row in current_cache:
+            if row.get("название вакансии") == request_data.vacancy_name:
+                row["комментарий"] = request_data.comment
+                logging.info(f"Комментарий в активном кэше для '{request_data.vacancy_name}' обновлен.")
+                break
+
         return {"message": "Комментарий успешно сохранен."}
     except Exception as e:
-        logging.error(f"Ошибка при сохранении комментария: {e}")
-        raise HTTPException(status_code=500, detail="Не удалось сохранить комментарий.")
+        logging.error(f"Критическая ошибка при обновлении комментария: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера при сохранении комментария.")
 
 scheduler = AsyncIOScheduler()
 

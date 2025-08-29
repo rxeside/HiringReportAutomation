@@ -35,13 +35,12 @@ async def load_comments():
         _all_comments = {}
 
 async def save_comments():
-    async with _comments_lock:
-        try:
-            async with aiofiles.open(COMMENTS_FILE_PATH, mode='w', encoding='utf-8') as f:
-                await f.write(json.dumps(_all_comments, ensure_ascii=False, indent=4))
-                logging.info(f"Комментарии успешно сохранены в {COMMENTS_FILE_PATH}.")
-        except Exception as e:
-            logging.error(f"Ошибка при сохранении комментариев в {COMMENTS_FILE_PATH}: {e}")
+    try:
+        async with aiofiles.open(COMMENTS_FILE_PATH, mode='w', encoding='utf-8') as f:
+            await f.write(json.dumps(_all_comments, ensure_ascii=False, indent=4))
+            logging.info(f"Комментарии успешно сохранены в {COMMENTS_FILE_PATH}.")
+    except Exception as e:
+        logging.error(f"Ошибка при сохранении комментариев в {COMMENTS_FILE_PATH}: {e}")
 
 async def get_all_comments():
     async with _comments_lock:
