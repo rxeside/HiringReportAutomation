@@ -9,3 +9,4 @@ services:
       - ./app:/app/app
       - ./templates:/app/templates
       - ./cache:/app/cache
+      - ./static:/app/static

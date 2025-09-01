@@ -1,41 +1,74 @@
-import os
+import logging
 from datetime import datetime
-from fastapi import FastAPI, Request, HTTPException
+from typing import Any, Dict, List
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
-import logging
-from . import report_generator, config, cache_manager, comments_manager
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-import aiofiles
-import json
 from pydantic import BaseModel
+from fastapi.staticfiles import StaticFiles
+from . import cache_manager, config, report_generator
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-app = FastAPI(title="Hiring Report Dashboard")
-templates = Jinja2Templates(directory="templates")
-
-HUNTFLOW_API_TOKEN = config.HUNTFLOW_API_TOKEN
-
-if HUNTFLOW_API_TOKEN:
-    logging.info(f"Токен успешно импортирован из config.py. (Начинается с: {HUNTFLOW_API_TOKEN[:4]}... )")
+if not config.HUNTFLOW_API_TOKEN:
+    logging.error("ВНИМАНИЕ: Токен HUNTFLOW_API_TOKEN не найден")
 else:
-    logging.error("ВНИМАНИЕ: Токен НЕ найден или не изменен в файле app/config.py")
+    logging.info("Токен Huntflow успешно загружен.")
+
+app = FastAPI(title="Hiring Report Dashboard", version="1.0.0")
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+templates = Jinja2Templates(directory="templates")
+scheduler = AsyncIOScheduler()
+
 
 class CommentUpdateRequest(BaseModel):
     vacancy_name: str
     comment: str
 
+
+@app.on_event("startup")
+async def startup_event():
+    logging.info("Инициализация приложения...")
+    await cache_manager.load_cache()
+
+    if config.HUNTFLOW_API_TOKEN:
+        if not await cache_manager.get_cached_data():
+            logging.info("Кэш пуст. Запускаю немедленное обновление данных...")
+            await cache_manager.update_cached_data(config.HUNTFLOW_API_TOKEN)
+
+        scheduler.add_job(
+            cache_manager.update_cached_data,
+            "interval",
+            seconds=config.UPDATE_INTERVAL_SECONDS,
+            args=(config.HUNTFLOW_API_TOKEN,),
+            id="update_report_job",
+            replace_existing=True
+        )
+        scheduler.start()
+        logging.info(f"Планировщик запущен. Обновление каждые {config.UPDATE_INTERVAL_SECONDS} секунд.")
+    else:
+        logging.warning("Планировщик не запущен, т.к. токен API не предоставлен.")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    logging.info("Остановка приложения...")
+    if scheduler.running:
+        scheduler.shutdown()
+    logging.info("Планировщик остановлен.")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def show_report_table(request: Request):
-    """Отображает главную страницу с таблицей отчета."""
-    if not HUNTFLOW_API_TOKEN:
+    if not config.HUNTFLOW_API_TOKEN:
         return templates.TemplateResponse("error.html", {
             "request": request,
-            "error_message": "Токен не задан в файле app/config.py"
+            "error_message": "Токен API не задан в файле app/config.py"
         })
 
-    logging.info("Запрос на отображение отчета. Начинаю сбор данных...")
     report_data = await cache_manager.get_cached_data()
     last_updated = cache_manager.get_last_updated_time_msk()
     headers = ["Название вакансии"] + report_generator.FUNNEL_STAGES_ORDER + ["Комментарий"]
@@ -48,81 +81,43 @@ async def show_report_table(request: Request):
     })
 
 
+@app.post("/update-comment", status_code=200)
+async def update_comment_endpoint(request_data: CommentUpdateRequest):
+    logging.info(f"Запрос на обновление комментария для: '{request_data.vacancy_name}'")
+
+    success = await cache_manager.update_comment(
+        request_data.vacancy_name,
+        request_data.comment
+    )
+
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Вакансия '{request_data.vacancy_name}' не найдена в кэше."
+        )
+    return {"message": "Комментарий успешно сохранен."}
+
+
 @app.get("/download-report")
 async def download_report_endpoint():
-    """Генерирует и отдает отчет в формате XLSX."""
-    if not HUNTFLOW_API_TOKEN:
-        raise HTTPException(status_code=500, detail="Токен не задан в файле app/config.py.")
-
-    logging.info("Запрос на скачивание XLSX. Начинаю сбор данных...")
     report_data = await cache_manager.get_cached_data()
-    if report_data is None:
-        raise HTTPException(status_code=500, detail="Не удалось получить данные для отчета.")
+    if not report_data:
+        raise HTTPException(status_code=404, detail="Нет данных для генерации отчета.")
 
     xlsx_file = report_generator.create_xlsx_report(report_data)
-    if xlsx_file is None:
-        raise HTTPException(status_code=500, detail="Не удалось создать XLSX файл.")
 
-    headers = {'Content-Disposition': 'attachment; filename="hiring_funnel_report.xlsx"'}
     return StreamingResponse(
         xlsx_file,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=headers
+        headers={'Content-Disposition': 'attachment; filename="hiring_funnel_report.xlsx"'}
     )
+
 
 @app.post("/refresh-report")
 async def refresh_report_endpoint():
-    """Обновляет данные отчета немедленно."""
-    if not HUNTFLOW_API_TOKEN:
-        raise HTTPException(status_code=500, detail="Токен не задан в файле app/config.py.")
+    if not config.HUNTFLOW_API_TOKEN:
+        raise HTTPException(status_code=403, detail="Токен API не задан.")
+
     logging.info("Запрос на принудительное обновление отчета.")
-    await cache_manager.update_cached_data(HUNTFLOW_API_TOKEN)
+    await cache_manager.update_cached_data(config.HUNTFLOW_API_TOKEN)
     return {"message": "Отчет успешно обновлен!"}
-
-
-@app.post("/update-comment")
-async def update_comment_endpoint(request_data: CommentUpdateRequest):
-    """Обновляет комментарий для конкретной вакансии."""
-    logging.info(f"Получен запрос на обновление комментария для вакансии: '{request_data.vacancy_name}'")
-    try:
-        await comments_manager.update_comment(request_data.vacancy_name, request_data.comment)
-
-        current_cache = await cache_manager.get_cached_data()
-        for row in current_cache:
-            if row.get("название вакансии") == request_data.vacancy_name:
-                row["комментарий"] = request_data.comment
-                logging.info(f"Комментарий в активном кэше для '{request_data.vacancy_name}' обновлен.")
-                break
-
-        return {"message": "Комментарий успешно сохранен."}
-    except Exception as e:
-        logging.error(f"Критическая ошибка при обновлении комментария: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера при сохранении комментария.")
-
-scheduler = AsyncIOScheduler()
-
-@app.on_event("startup")
-async def startup_event():
-    logging.info("Инициализация кэша и планировщика задач...")
-
-    await comments_manager.load_comments()
-    await cache_manager.load_cache()
-
-    #if HUNTFLOW_API_TOKEN:
-    #   await cache_manager.update_cached_data(HUNTFLOW_API_TOKEN)
-
-    scheduler.add_job(
-        cache_manager.update_cached_data,
-        "interval",
-        seconds=config.UPDATE_INTERVAL_SECONDS,
-        args=(HUNTFLOW_API_TOKEN,),
-        max_instances=1,
-        next_run_time=datetime.now()
-    )
-    scheduler.start()
-    logging.info(f"Планировщик запущен, обновление каждые {config.UPDATE_INTERVAL_SECONDS} секунд.")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logging.info("Останавливаю планировщик задач...")
-    scheduler.shutdown()
