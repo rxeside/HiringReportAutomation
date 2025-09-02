@@ -9,16 +9,22 @@
 <body>
     <div class="container">
         <div class="header">
-            <div class="last-updated">
-                {% if last_updated %}
-                    Последнее обновление: {{ last_updated.strftime('%d.%m.%Y %H:%M:%S') }} МСК
-                {% else %}
-                    Данные еще не обновлялись.
-                {% endif %}
-                <button id="refreshButton" class="download-btn" style="margin-left: 15px; background-color: #007bff;">Обновить сейчас</button>
+            <div class="header-left">
+                <button id="refreshButton" class="btn btn-primary">Обновить сейчас</button>
             </div>
-            <h1>Отчет по воронке найма</h1>
-            <a href="/download-report" class="download-btn">Скачать XLSX</a>
+            <div class="header-center">
+                <h1>Отчет по воронке найма</h1>
+                <div class="last-updated">
+                    {% if last_updated %}
+                        Последнее обновление: {{ last_updated.strftime('%d.%m.%Y %H:%M:%S') }} МСК
+                    {% else %}
+                        Данные еще не обновлялись.
+                    {% endif %}
+                </div>
+            </div>
+            <div class="header-right">
+                <a href="/download-report" class="btn btn-secondary">Скачать XLSX</a>
+            </div>
         </div>
         <table>
             <thead>

@@ -27,7 +27,6 @@ HUNTFLOW_STATUSES_TO_COLUMNS = {
 }
 
 
-
 async def get_total_applicants_on_stage(api_client, account_id, vacancy_id, status_id):
     try:
         search_params = {"vacancy": [vacancy_id], "status": [status_id], "only_current_status": "false", "count": 1}

@@ -16,15 +16,62 @@ body {
     box-shadow: 0 2px 10px rgba(0,0,0,0.05);
 }
 
-h1 {
-    text-align: center;
-}
-
 .header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 20px;
+}
+
+.header-left, .header-right, .header-center {
+    flex: 1;
+}
+
+.header-left {
+    text-align: left;
+}
+
+.header-center {
+    text-align: center;
+}
+
+.header-right {
+    text-align: right;
+}
+
+.header h1 {
+    margin: 0 0 4px 0;
+    font-size: 1.8em;
+}
+
+.last-updated {
+    font-size: 0.8em;
+    color: #6c757d;
+}
+
+.btn {
+    color: white;
+    padding: 10px 15px;
+    text-decoration: none;
+    border-radius: 5px;
+    font-weight: bold;
+    border: none;
+    cursor: pointer;
+    display: inline-block;
+}
+
+.btn-primary {
+    background-color: #007bff;
+}
+.btn-primary:hover {
+    background-color: #0069d9;
+}
+
+.btn-secondary {
+    background-color: #28a745;
+}
+.btn-secondary:hover {
+    background-color: #218838;
 }
 
 table {
@@ -48,19 +95,6 @@ tr:nth-child(even) {
 
 .priority {
     background-color: #fff3cd !important;
-}
-
-.download-btn {
-    background-color: #28a745;
-    color: white;
-    padding: 10px 15px;
-    text-decoration: none;
-    border-radius: 5px;
-    font-weight: bold;
-}
-
-.download-btn:hover {
-    background-color: #218838;
 }
 
 .no-data {
