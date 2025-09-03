@@ -129,10 +129,10 @@ async def fetch_and_process_data(token: str):
             vacancy_position = vacancy.get("position", "Без названия")
 
             # TODO: сделать на страничке кнопку фильтра только по приоритетным вакансиям
-            if vacancy_position not in PRIORITY_VACANCIES: continue
+            # if vacancy_position not in PRIORITY_VACANCIES: continue
 
             vacancy_id = vacancy["id"]
-            logging.info(f"  - Обрабатываю вакансию: «{vacancy_position}»")
+            # logging.info(f"  - Обрабатываю вакансию: «{vacancy_position}»")
 
             is_priority = vacancy_position in PRIORITY_VACANCIES
             funnel_row = {"название вакансии": vacancy_position, "is_priority": is_priority}

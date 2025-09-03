@@ -2,7 +2,7 @@ import requests
 import json
 from datetime import timedelta
 
-EXISTING_REFRESH_TOKEN = "4bd9decc764775ecad0ca754109e6adf30b3925015a7aa9867cd1e3d528f7054"
+EXISTING_REFRESH_TOKEN = "1176323293336500b391eb147153741fb90cdf5197d55f38c81e472aa5754860"
 
 REFRESH_URL = "https://api.huntflow.ru/v2/token/refresh"
 

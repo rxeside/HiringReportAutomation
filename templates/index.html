@@ -29,6 +29,15 @@
                 <a href="/download-report" class="btn btn-secondary">Скачать XLSX</a>
             </div>
         </div>
+         <div class="toolbar">
+            <div class="filter-switch">
+                <label for="priority-toggle">Показывать только приоритетные</label>
+                <label class="switch">
+                    <input type="checkbox" id="priority-toggle" checked>
+                    <span class="slider round"></span>
+                </label>
+            </div>
+        </div>
         <table>
             <thead>
                 <tr>
@@ -40,7 +49,7 @@
             <tbody>
                 {% if report_data %}
                     {% for row in report_data %}
-                        <tr class="{{ 'priority' if row.is_priority else '' }}">
+                        <tr class="{{ 'priority' if row.is_priority else '' }}" data-priority="{{ row.is_priority|string|lower }}">
                             <td>{{ row['название вакансии'] }}</td>
                             {% for stage in ['коннект', 'интервью с HR', 'интервью с заказчиком', 'финальное интервью', 'выставлен оффер', 'вышел на работу'] %}
                                 <td>{{ row[stage].total }} ({{ row[stage].current }})</td>
