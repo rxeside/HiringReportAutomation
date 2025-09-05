@@ -35,7 +35,7 @@ async def startup_event():
     await cache_manager.load_cache()
 
     if config.HUNTFLOW_API_TOKEN:
-        if not await cache_manager.get_cached_data():
+        if not await cache_manager.get_cached_vacancies():
             logging.info("Кэш пуст. Запускаю немедленное обновление данных...")
             await cache_manager.update_cached_data(config.HUNTFLOW_API_TOKEN)
 
@@ -55,6 +55,7 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    # ... (код без изменений)
     logging.info("Остановка приложения...")
     if scheduler.running:
         scheduler.shutdown()
@@ -69,7 +70,8 @@ async def show_report_table(request: Request):
             "error_message": "Токен API не задан в файле app/config.py"
         })
 
-    report_data = await cache_manager.get_cached_data()
+    report_data = await cache_manager.get_cached_vacancies()
+    coworkers = await cache_manager.get_cached_coworkers()
     last_updated = cache_manager.get_last_updated_time_msk()
     headers = ["Название вакансии"] + report_generator.FUNNEL_STAGES_ORDER + ["Комментарий"]
 
@@ -78,18 +80,17 @@ async def show_report_table(request: Request):
         "headers": headers,
         "report_data": report_data,
         "last_updated": last_updated,
+        "coworkers": coworkers
     })
 
 
 @app.post("/update-comment", status_code=200)
 async def update_comment_endpoint(request_data: CommentUpdateRequest):
     logging.info(f"Запрос на обновление комментария для: '{request_data.vacancy_name}'")
-
     success = await cache_manager.update_comment(
         request_data.vacancy_name,
         request_data.comment
     )
-
     if not success:
         raise HTTPException(
             status_code=404,
@@ -100,7 +101,7 @@ async def update_comment_endpoint(request_data: CommentUpdateRequest):
 
 @app.get("/download-report")
 async def download_report_endpoint():
-    report_data = await cache_manager.get_cached_data()
+    report_data = await cache_manager.get_cached_vacancies()
     if not report_data:
         raise HTTPException(status_code=404, detail="Нет данных для генерации отчета.")
 
@@ -117,7 +118,6 @@ async def download_report_endpoint():
 async def refresh_report_endpoint():
     if not config.HUNTFLOW_API_TOKEN:
         raise HTTPException(status_code=403, detail="Токен API не задан.")
-
     logging.info("Запрос на принудительное обновление отчета.")
     await cache_manager.update_cached_data(config.HUNTFLOW_API_TOKEN)
     return {"message": "Отчет успешно обновлен!"}

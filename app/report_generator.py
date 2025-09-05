@@ -7,6 +7,7 @@ from openpyxl.styles import PatternFill
 from datetime import datetime, timedelta, timezone
 import logging
 from io import BytesIO
+from typing import Dict, Any, List, Optional
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -25,6 +26,38 @@ HUNTFLOW_STATUSES_TO_COLUMNS = {
     "Интервью с заказчиком": "интервью с заказчиком", "Финальное интервью": "финальное интервью",
     "Предложение о работе": "выставлен оффер", "Вышел на работу": "вышел на работу",
 }
+
+
+async def get_coworkers(api_client: HuntflowAPI, account_id: int) -> Dict[int, str]:
+    """Загружает всех рекрутеров (coworkers) для указанного аккаунта."""
+    coworkers_map = {}
+    current_page = 1
+    total_pages = 1
+    logging.info("Загружаю список рекрутеров...")
+
+    try:
+        while current_page <= total_pages:
+            params = {"page": current_page, "count": 100}
+            response = await api_client.request("GET", f"/accounts/{account_id}/coworkers", params=params)
+            data = response.json()
+            items = data.get("items", [])
+            if not items:
+                break
+
+            for item in items:
+                coworkers_map[item["id"]] = item["name"]
+
+            if current_page == 1:
+                total_pages = data.get("total_pages", 1)
+                logging.info(f"Всего найдено страниц с рекрутерами: {total_pages}")
+
+            current_page += 1
+
+        logging.info(f"Успешно загружено {len(coworkers_map)} рекрутеров.")
+        return coworkers_map
+    except Exception as e:
+        logging.error(f"Произошла ошибка при получении списка рекрутеров: {e}")
+        return {}
 
 
 async def get_total_applicants_on_stage(api_client, account_id, vacancy_id, status_id):
@@ -55,9 +88,7 @@ async def get_factual_weekly_funnel_counts(api_client, account_id, vacancy_id, s
     except Exception as e:
         logging.error(f"Ошибка при получении списка кандидатов для анализа логов: {e}")
         return weekly_factual_counts
-
     one_week_ago = datetime.now(timezone.utc) - timedelta(days=7)
-
     for applicant in all_applicants:
         applicant_id = applicant.get("id")
         counted_stages_for_applicant = set()
@@ -86,7 +117,7 @@ async def get_factual_weekly_funnel_counts(api_client, account_id, vacancy_id, s
     return weekly_factual_counts
 
 
-async def fetch_and_process_data(token: str):
+async def fetch_and_process_data(token: str) -> Optional[Dict[str, Any]]:
     """Главная функция для получения и обработки данных."""
     if not token:
         logging.error("Токен Huntflow не предоставлен.")
@@ -97,9 +128,14 @@ async def fetch_and_process_data(token: str):
     try:
         accounts_response = await api_client.request("GET", "/accounts")
         accounts_data = accounts_response.json()
-        if not accounts_data.get("items"): logging.error("Ошибка: Не найдено ни одного аккаунта."); return None
+        if not accounts_data.get("items"):
+            logging.error("Ошибка: Не найдено ни одного аккаунта.")
+            return None
         account_id = accounts_data["items"][0]["id"]
         logging.info(f"Успешно подключились к аккаунту: {accounts_data['items'][0]['name']} (ID: {account_id})")
+
+        # ВЫЗЫВАЕМ новую функцию
+        coworkers_map = await get_coworkers(api_client, account_id)
 
         statuses_response = await api_client.request("GET", f"/accounts/{account_id}/vacancies/statuses")
         statuses_data = statuses_response.json()
@@ -127,15 +163,19 @@ async def fetch_and_process_data(token: str):
 
         for vacancy in all_vacancies:
             vacancy_position = vacancy.get("position", "Без названия")
-
-            # TODO: сделать на страничке кнопку фильтра только по приоритетным вакансиям
-            # if vacancy_position not in PRIORITY_VACANCIES: continue
-
             vacancy_id = vacancy["id"]
-            # logging.info(f"  - Обрабатываю вакансию: «{vacancy_position}»")
+
+            # ИЗВЛЕКАЕМ ID рекрутеров
+            member_ids = [member['id'] for member in vacancy.get("members", [])]
 
             is_priority = vacancy_position in PRIORITY_VACANCIES
-            funnel_row = {"название вакансии": vacancy_position, "is_priority": is_priority}
+            if vacancy_position not in PRIORITY_VACANCIES: continue
+
+            funnel_row = {
+                "название вакансии": vacancy_position,
+                "is_priority": is_priority,
+                "members": member_ids  # ДОБАВЛЯЕМ ID в данные вакансии
+            }
             for column_name in FUNNEL_STAGES_ORDER:
                 funnel_row[column_name] = {"total": 0, "current": 0}
 
@@ -153,7 +193,11 @@ async def fetch_and_process_data(token: str):
             all_vacancies_data.append(funnel_row)
 
         all_vacancies_data.sort(key=lambda x: not x.get('is_priority', False))
-        return all_vacancies_data
+
+        return {
+            "vacancies": all_vacancies_data,
+            "coworkers": coworkers_map
+        }
 
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 401:
@@ -178,7 +222,6 @@ def create_xlsx_report(data):
     priority_fill = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
     headers = ["название вакансии"] + FUNNEL_STAGES_ORDER + ["комментарий"]
     sheet.append(headers)
-
     for row_data in data:
         row_to_append = []
         for header in headers:
@@ -194,7 +237,6 @@ def create_xlsx_report(data):
         if row_data.get('is_priority', False):
             for cell in sheet[sheet.max_row]:
                 cell.fill = priority_fill
-
     virtual_workbook = BytesIO()
     workbook.save(virtual_workbook)
     virtual_workbook.seek(0)
