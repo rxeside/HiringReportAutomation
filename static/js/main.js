@@ -1,9 +1,8 @@
 document.addEventListener('DOMContentLoaded', () => {
     initRefreshButton();
     initCommentEditing();
-    initPriorityFilter();
+    initFilters();
 });
-
 
 function initRefreshButton() {
     const refreshButton = document.getElementById('refreshButton');
@@ -12,7 +11,6 @@ function initRefreshButton() {
     }
 }
 
-
 function initCommentEditing() {
     const tableBody = document.querySelector('table tbody');
     if (tableBody) {
@@ -20,32 +18,49 @@ function initCommentEditing() {
     }
 }
 
+function initFilters() {
+    const priorityToggle = document.getElementById('priority-toggle');
+    const recruiterFilter = document.getElementById('recruiter-filter');
 
-function initPriorityFilter() {
-    const toggle = document.getElementById('priority-toggle');
-    if (toggle) {
-        toggle.addEventListener('change', applyPriorityFilter);
-        applyPriorityFilter();
+    if (priorityToggle) {
+        priorityToggle.addEventListener('change', applyFilters);
     }
+    if (recruiterFilter) {
+        recruiterFilter.addEventListener('change', applyFilters);
+    }
+
+    applyFilters();
 }
 
-
-function applyPriorityFilter() {
-    const toggle = document.getElementById('priority-toggle');
+function applyFilters() {
+    const priorityToggle = document.getElementById('priority-toggle');
+    const recruiterFilter = document.getElementById('recruiter-filter');
     const rows = document.querySelectorAll('table tbody tr');
-    const showOnlyPriority = toggle.checked;
+
+    const showOnlyPriority = priorityToggle.checked;
+    const selectedRecruiterId = recruiterFilter.value;
 
     rows.forEach(row => {
         const isPriority = row.dataset.priority === 'true';
+        const priorityMatch = !showOnlyPriority || isPriority;
 
-        if (showOnlyPriority && !isPriority) {
-            row.classList.add('hidden-by-filter');
+        let recruiterMatch = false;
+        if (selectedRecruiterId === 'all') {
+            recruiterMatch = true;
         } else {
-            row.classList.remove('hidden-by-filter');
+            const memberIds = JSON.parse(row.dataset.members || '[]');
+            if (memberIds.includes(parseInt(selectedRecruiterId, 10))) {
+                recruiterMatch = true;
+            }
+        }
+
+        if (priorityMatch && recruiterMatch) {
+            row.classList.remove('hidden-by-filters');
+        } else {
+            row.classList.add('hidden-by-filters');
         }
     });
 }
-
 
 async function handleRefreshClick() {
     const button = this;

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 from io import BytesIO
 from typing import Dict, Any, List, Optional
+import traceback
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -27,14 +28,20 @@ HUNTFLOW_STATUSES_TO_COLUMNS = {
     "Предложение о работе": "выставлен оффер", "Вышел на работу": "вышел на работу",
 }
 
+async def get_vacancy_coworkers(api_client: HuntflowAPI, account_id: int, vacancy_id: int) -> List[int]:
+    try:
+        params = {"vacancy_id": [vacancy_id]}
+        response = await api_client.request("GET", f"/accounts/{account_id}/coworkers", params=params)
+        data = response.json()
+        return [item['id'] for item in data.get("items", [])]
+    except Exception as e:
+        logging.error(f"Не удалось получить рекрутеров для вакансии {vacancy_id}: {e}")
+        return []
 
 async def get_coworkers(api_client: HuntflowAPI, account_id: int) -> Dict[int, str]:
-    """Загружает всех рекрутеров (coworkers) для указанного аккаунта."""
     coworkers_map = {}
     current_page = 1
     total_pages = 1
-    logging.info("Загружаю список рекрутеров...")
-
     try:
         while current_page <= total_pages:
             params = {"page": current_page, "count": 100}
@@ -43,16 +50,11 @@ async def get_coworkers(api_client: HuntflowAPI, account_id: int) -> Dict[int, s
             items = data.get("items", [])
             if not items:
                 break
-
             for item in items:
                 coworkers_map[item["id"]] = item["name"]
-
             if current_page == 1:
                 total_pages = data.get("total_pages", 1)
-                logging.info(f"Всего найдено страниц с рекрутерами: {total_pages}")
-
             current_page += 1
-
         logging.info(f"Успешно загружено {len(coworkers_map)} рекрутеров.")
         return coworkers_map
     except Exception as e:
@@ -67,7 +69,7 @@ async def get_total_applicants_on_stage(api_client, account_id, vacancy_id, stat
         data = response.json()
         return data.get("total_items", 0)
     except Exception as e:
-        logging.error(f"Ошибка при получении общего числа для status_id {status_id}: {e}")
+        logging.error(f"Ошибка при получении общего числа кандидатов для status_id {status_id}: {e}")
         return 0
 
 
@@ -86,8 +88,9 @@ async def get_factual_weekly_funnel_counts(api_client, account_id, vacancy_id, s
             all_applicants.extend(items)
             page += 1
     except Exception as e:
-        logging.error(f"Ошибка при получении списка кандидатов для анализа логов: {e}")
+        logging.error(f"Ошибка при получении списка кандидатов для анализа логов вакансии ID {vacancy_id}: {e}")
         return weekly_factual_counts
+
     one_week_ago = datetime.now(timezone.utc) - timedelta(days=7)
     for applicant in all_applicants:
         applicant_id = applicant.get("id")
@@ -112,29 +115,24 @@ async def get_factual_weekly_funnel_counts(api_client, account_id, vacancy_id, s
                             if stage not in counted_stages_for_applicant:
                                 weekly_factual_counts[stage] += 1
                                 counted_stages_for_applicant.add(stage)
-        except Exception:
+        except Exception as e:
+            logging.warning(
+                f"Произошла ошибка при обработке логов кандидата ID {applicant_id} для вакансии ID {vacancy_id}: {e}")
             continue
     return weekly_factual_counts
 
 
 async def fetch_and_process_data(token: str) -> Optional[Dict[str, Any]]:
-    """Главная функция для получения и обработки данных."""
     if not token:
         logging.error("Токен Huntflow не предоставлен.")
         return None
-
     api_client = HuntflowAPI(base_url="https://api.huntflow.ru", token=ApiToken(access_token=token))
-
     try:
         accounts_response = await api_client.request("GET", "/accounts")
         accounts_data = accounts_response.json()
-        if not accounts_data.get("items"):
-            logging.error("Ошибка: Не найдено ни одного аккаунта.")
-            return None
         account_id = accounts_data["items"][0]["id"]
         logging.info(f"Успешно подключились к аккаунту: {accounts_data['items'][0]['name']} (ID: {account_id})")
 
-        # ВЫЗЫВАЕМ новую функцию
         coworkers_map = await get_coworkers(api_client, account_id)
 
         statuses_response = await api_client.request("GET", f"/accounts/{account_id}/vacancies/statuses")
@@ -155,60 +153,44 @@ async def fetch_and_process_data(token: str) -> Optional[Dict[str, Any]]:
             all_vacancies.extend(items)
             if current_page == 1:
                 total_pages = vacancies_data.get("total_pages", 1)
-                logging.info(f"Всего найдено страниц с вакансиями: {total_pages}")
             current_page += 1
 
         all_vacancies_data = []
         logging.info(f"Найдено {len(all_vacancies)} активных вакансий. Начинаю сбор данных...")
-
         for vacancy in all_vacancies:
             vacancy_position = vacancy.get("position", "Без названия")
             vacancy_id = vacancy["id"]
 
-            # ИЗВЛЕКАЕМ ID рекрутеров
-            member_ids = [member['id'] for member in vacancy.get("members", [])]
+            member_ids = await get_vacancy_coworkers(api_client, account_id, vacancy_id)
+
+            if vacancy_position == "РОП  NA AM":
+                logging.info(f"ДЕБАГ: Найдена вакансия '{vacancy_position}'")
+                logging.info(f"ДЕБАГ: Извлеченные ID рекрутеров: {member_ids}")
+                member_names = [coworkers_map.get(m_id, f"НЕИЗВЕСТНЫЙ ID {m_id}") for m_id in member_ids]
+                logging.info(f"ДЕБАГ: Имена рекрутеров по этим ID: {member_names}")
 
             is_priority = vacancy_position in PRIORITY_VACANCIES
             if vacancy_position not in PRIORITY_VACANCIES: continue
+            funnel_row = {"название вакансии": vacancy_position, "is_priority": is_priority, "members": member_ids}
 
-            funnel_row = {
-                "название вакансии": vacancy_position,
-                "is_priority": is_priority,
-                "members": member_ids  # ДОБАВЛЯЕМ ID в данные вакансии
-            }
             for column_name in FUNNEL_STAGES_ORDER:
                 funnel_row[column_name] = {"total": 0, "current": 0}
-
             weekly_counts = await get_factual_weekly_funnel_counts(api_client, account_id, vacancy_id,
                                                                    status_id_to_name_map)
             for stage_name, count in weekly_counts.items():
                 funnel_row[stage_name]["current"] = count
-
             for status_hf_name, column_name in HUNTFLOW_STATUSES_TO_COLUMNS.items():
                 status_id = status_name_to_id_map.get(status_hf_name)
                 if status_id:
                     total_count = await get_total_applicants_on_stage(api_client, account_id, vacancy_id, status_id)
-                    if column_name in funnel_row:
-                        funnel_row[column_name]["total"] = total_count
+                    funnel_row[column_name]["total"] = total_count
             all_vacancies_data.append(funnel_row)
 
         all_vacancies_data.sort(key=lambda x: not x.get('is_priority', False))
-
-        return {
-            "vacancies": all_vacancies_data,
-            "coworkers": coworkers_map
-        }
-
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 401:
-            logging.error("Ошибка 401: Unauthorized. Токен недействителен или истек.")
-        else:
-            logging.error(f"Произошла HTTP ошибка: {e.response.status_code} - {e.response.text}")
-        return None
+        return {"vacancies": all_vacancies_data, "coworkers": coworkers_map}
     except Exception as e:
-        import traceback
-        logging.error(f"Произошла непредвиденная ошибка: {e}")
-        traceback.print_exc()
+        logging.error(f"Произошла непредвиденная ошибка в fetch_and_process_data: {e}")
+        logging.error(traceback.format_exc())
         return None
 
 
@@ -222,6 +204,7 @@ def create_xlsx_report(data):
     priority_fill = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
     headers = ["название вакансии"] + FUNNEL_STAGES_ORDER + ["комментарий"]
     sheet.append(headers)
+
     for row_data in data:
         row_to_append = []
         for header in headers:
@@ -237,6 +220,7 @@ def create_xlsx_report(data):
         if row_data.get('is_priority', False):
             for cell in sheet[sheet.max_row]:
                 cell.fill = priority_fill
+
     virtual_workbook = BytesIO()
     workbook.save(virtual_workbook)
     virtual_workbook.seek(0)

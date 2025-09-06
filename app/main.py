@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime
 from typing import Any, Dict, List
@@ -15,15 +16,10 @@ if not config.HUNTFLOW_API_TOKEN:
     logging.error("ВНИМАНИЕ: Токен HUNTFLOW_API_TOKEN не найден")
 else:
     logging.info("Токен Huntflow успешно загружен.")
-
 app = FastAPI(title="Hiring Report Dashboard", version="1.0.0")
-
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
 templates = Jinja2Templates(directory="templates")
 scheduler = AsyncIOScheduler()
-
-
 class CommentUpdateRequest(BaseModel):
     vacancy_name: str
     comment: str
@@ -36,8 +32,8 @@ async def startup_event():
 
     if config.HUNTFLOW_API_TOKEN:
         if not await cache_manager.get_cached_vacancies():
-            logging.info("Кэш пуст. Запускаю немедленное обновление данных...")
-            await cache_manager.update_cached_data(config.HUNTFLOW_API_TOKEN)
+            logging.info("Кэш пуст. Запускаю немедленное обновление данных В ФОНЕ...")
+            asyncio.create_task(cache_manager.update_cached_data(config.HUNTFLOW_API_TOKEN))
 
         scheduler.add_job(
             cache_manager.update_cached_data,
@@ -55,7 +51,6 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    # ... (код без изменений)
     logging.info("Остановка приложения...")
     if scheduler.running:
         scheduler.shutdown()
@@ -69,12 +64,10 @@ async def show_report_table(request: Request):
             "request": request,
             "error_message": "Токен API не задан в файле app/config.py"
         })
-
     report_data = await cache_manager.get_cached_vacancies()
     coworkers = await cache_manager.get_cached_coworkers()
     last_updated = cache_manager.get_last_updated_time_msk()
     headers = ["Название вакансии"] + report_generator.FUNNEL_STAGES_ORDER + ["Комментарий"]
-
     return templates.TemplateResponse("index.html", {
         "request": request,
         "headers": headers,
@@ -104,9 +97,7 @@ async def download_report_endpoint():
     report_data = await cache_manager.get_cached_vacancies()
     if not report_data:
         raise HTTPException(status_code=404, detail="Нет данных для генерации отчета.")
-
     xlsx_file = report_generator.create_xlsx_report(report_data)
-
     return StreamingResponse(
         xlsx_file,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
