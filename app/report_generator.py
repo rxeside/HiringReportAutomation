@@ -30,7 +30,10 @@ HUNTFLOW_STATUSES_TO_COLUMNS = {
 
 async def get_vacancy_coworkers(api_client: HuntflowAPI, account_id: int, vacancy_id: int) -> List[int]:
     try:
-        params = {"vacancy_id": [vacancy_id]}
+        params = {
+            "vacancy_id": [vacancy_id],
+            "type": ["owner", "manager"]
+        }
         response = await api_client.request("GET", f"/accounts/{account_id}/coworkers", params=params)
         data = response.json()
         return [item['id'] for item in data.get("items", [])]

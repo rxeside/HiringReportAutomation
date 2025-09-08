@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, HTTPException, Request
@@ -31,8 +31,12 @@ async def startup_event():
     await cache_manager.load_cache()
 
     if config.HUNTFLOW_API_TOKEN:
-        if not await cache_manager.get_cached_vacancies():
-            logging.info("Кэш пуст. Запускаю немедленное обновление данных В ФОНЕ...")
+        cache_exists = bool(cache_manager.get_cached_vacancies())
+        if not cache_exists:
+            logging.info("Кэш пуст. Запускаю ПЕРВОЕ обновление (блокирующее)...")
+            await cache_manager.update_cached_data(config.HUNTFLOW_API_TOKEN)
+        else:
+            logging.info("Кэш найден. Запускаю ПЛАНОВОЕ обновление в фоновом режиме...")
             asyncio.create_task(cache_manager.update_cached_data(config.HUNTFLOW_API_TOKEN))
 
         scheduler.add_job(
@@ -41,10 +45,11 @@ async def startup_event():
             seconds=config.UPDATE_INTERVAL_SECONDS,
             args=(config.HUNTFLOW_API_TOKEN,),
             id="update_report_job",
-            replace_existing=True
+            replace_existing=True,
+            next_run_time=datetime.now() + timedelta(seconds=config.UPDATE_INTERVAL_SECONDS)
         )
         scheduler.start()
-        logging.info(f"Планировщик запущен. Обновление каждые {config.UPDATE_INTERVAL_SECONDS} секунд.")
+        logging.info(f"Планировщик запущен. Следующее обновление через {config.UPDATE_INTERVAL_SECONDS} секунд.")
     else:
         logging.warning("Планировщик не запущен, т.к. токен API не предоставлен.")
 
@@ -64,8 +69,8 @@ async def show_report_table(request: Request):
             "request": request,
             "error_message": "Токен API не задан в файле app/config.py"
         })
-    report_data = await cache_manager.get_cached_vacancies()
-    coworkers = await cache_manager.get_cached_coworkers()
+    report_data = cache_manager.get_cached_vacancies()
+    coworkers = cache_manager.get_cached_coworkers()
     last_updated = cache_manager.get_last_updated_time_msk()
     headers = ["Название вакансии"] + report_generator.FUNNEL_STAGES_ORDER + ["Комментарий"]
     return templates.TemplateResponse("index.html", {
@@ -94,7 +99,7 @@ async def update_comment_endpoint(request_data: CommentUpdateRequest):
 
 @app.get("/download-report")
 async def download_report_endpoint():
-    report_data = await cache_manager.get_cached_vacancies()
+    report_data = cache_manager.get_cached_vacancies()
     if not report_data:
         raise HTTPException(status_code=404, detail="Нет данных для генерации отчета.")
     xlsx_file = report_generator.create_xlsx_report(report_data)

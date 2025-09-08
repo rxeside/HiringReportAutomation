@@ -115,9 +115,9 @@ def get_last_updated_time_msk() -> Optional[datetime]:
     return None
 
 
-async def get_cached_vacancies() -> List[Dict[str, Any]]:
+def get_cached_vacancies() -> List[Dict[str, Any]]:
     return _cached_data.get("vacancies", [])
 
 
-async def get_cached_coworkers() -> Dict[int, str]:
+def get_cached_coworkers() -> Dict[int, str]:
     return _cached_data.get("coworkers", {})
