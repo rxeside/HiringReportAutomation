@@ -210,6 +210,26 @@ input:checked + .slider:before {
     border-radius: 50%;
 }
 
+.filter-group .ts-control {
+    width: 300px;
+}
+
+.ts-dropdown {
+    background-color: white;
+}
+
+.ts-control .item {
+    padding-right: 5px;
+}
+
+.ts-control .clear-button {
+    display: none;
+}
+
+tr.hidden-by-filters {
+    display: none;
+}
+
 tr.hidden-by-filters {
     display: none;
 }

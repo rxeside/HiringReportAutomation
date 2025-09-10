@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Воронка найма</title>
+    <link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', path='css/styles.css') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -32,12 +34,7 @@
         <div class="toolbar">
             <div class="filter-group">
                 <label for="recruiter-filter">Рекрутер:</label>
-                <select id="recruiter-filter">
-                    <option value="all">Все рекрутеры</option>
-                    {% for co_id, co_name in coworkers.items()|sort(attribute=1) %}
-                        <option value="{{ co_id }}">{{ co_name }}</option>
-                    {% endfor %}
-                </select>
+                <select id="recruiter-filter" placeholder="Выберите рекрутера..."></select>
             </div>
             <div class="filter-group">
                 <label for="priority-toggle">Только приоритетные</label>
@@ -82,6 +79,9 @@
             </tbody>
         </table>
     </div>
+    <script>
+        window.coworkersData = {{ coworkers|tojson|safe }};
+    </script>
     <script src="{{ url_for('static', path='js/main.js') }}" defer></script>
 </body>
 </html>
