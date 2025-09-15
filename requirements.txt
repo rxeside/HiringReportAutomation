@@ -9,3 +9,4 @@ Jinja2
 python-multipart
 APScheduler
 aiofiles
+python-dotenv

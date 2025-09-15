@@ -1,5 +1,10 @@
-# TODO: подумать как можно обновлять токен автоматически
-HUNTFLOW_API_TOKEN = "44020d74f32cbde429f654f92cbbc1e6882419b56e13208651f3fb1198efcf4e"
-REPORT_CACHE_FILE = "report_cache.json"
-UPDATE_INTERVAL_SECONDS = 3600  # час
-CACHE_FILE_PATH = "cache/report_cache.json"
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+HUNTFLOW_API_TOKEN = os.getenv("HUNTFLOW_API_TOKEN")
+
+CACHE_FILE_PATH = os.getenv("CACHE_FILE_PATH", "cache/report_cache.json")
+
+UPDATE_INTERVAL_SECONDS = int(os.getenv("UPDATE_INTERVAL_SECONDS", 3600))

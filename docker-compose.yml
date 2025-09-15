@@ -10,3 +10,5 @@ services:
       - ./templates:/app/templates
       - ./cache:/app/cache
       - ./static:/app/static
+    env_file:
+      - .env
