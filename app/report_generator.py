@@ -9,6 +9,7 @@ import logging
 from io import BytesIO
 from typing import Dict, Any, List, Optional
 import traceback
+from .token_manager import token_proxy
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -107,7 +108,6 @@ async def _build_funnel_row(api_client: HuntflowAPI, account_id: int, vacancy: D
     return funnel_row
 
 
-
 async def get_vacancy_coworkers(api_client: HuntflowAPI, account_id: int, vacancy_id: int) -> List[int]:
     try:
         params = {
@@ -158,12 +158,17 @@ async def get_factual_weekly_funnel_counts(api_client: HuntflowAPI, account_id: 
     return weekly_factual_counts
 
 
-async def fetch_and_process_data(token: str) -> Optional[Dict[str, Any]]:
-    if not token:
+async def generate_recruitment_funnel_report() -> Optional[Dict[str, Any]]:
+    if not token_proxy._access_token:
         logging.error("Токен Huntflow не предоставлен.")
         return None
 
-    api_client = HuntflowAPI(base_url="https://api.huntflow.ru", token=ApiToken(access_token=token))
+    api_client = HuntflowAPI(
+        base_url="https://api.huntflow.ru",
+        token_proxy=token_proxy,
+        auto_refresh_tokens=True
+    )
+
     try:
         accounts_response = await api_client.request("GET", "/accounts")
         account_id = accounts_response.json()["items"][0]["id"]
@@ -189,7 +194,7 @@ async def fetch_and_process_data(token: str) -> Optional[Dict[str, Any]]:
         all_vacancies_data.sort(key=lambda x: not x.get('is_priority', False))
         return {"vacancies": all_vacancies_data, "coworkers": coworkers_map}
     except Exception as e:
-        logging.error(f"КРИТИЧЕСКАЯ ОШИБКА в fetch_and_process_data: {e}")
+        logging.error(f"КРИТИЧЕСКАЯ ОШИБКА в generate_recruitment_funnel_report: {e}")
         logging.error(traceback.format_exc())
         return None
 

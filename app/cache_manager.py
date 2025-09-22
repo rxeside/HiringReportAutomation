@@ -63,9 +63,9 @@ async def _save_cache_internal() -> None:
         logging.error(f"Ошибка при сохранении кэша: {e}", exc_info=True)
 
 
-async def update_cached_data(token: str) -> None:
+async def update_cached_data() -> None:
     try:
-        fetched_data = await report_generator.fetch_and_process_data(token)
+        fetched_data = await report_generator.generate_recruitment_funnel_report()
         async with _cache_lock:
             if fetched_data is not None:
                 existing_comments = {
