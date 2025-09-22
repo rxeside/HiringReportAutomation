@@ -57,29 +57,37 @@ async def _process_applicant_logs(api_client: HuntflowAPI, account_id: int, appl
 
     try:
         logs_url = f"/accounts/{account_id}/applicants/{applicant_id}/logs"
-        log_response = await api_client.request("GET", logs_url, params={"vacancy": vacancy_id})
-        logs = list(reversed(log_response.json().get("items", [])))
+        all_logs = await _fetch_all_paginated_items(api_client, logs_url, params={"vacancy": vacancy_id})
+        logs = list(reversed(all_logs))
 
         for i, log in enumerate(logs):
             if log.get("type") != "STATUS":
                 continue
 
-            log_date = datetime.fromisoformat(log.get("created", ""))
+            created_at_str = log.get("created")
+            if not created_at_str:
+                continue
+
+            log_date = datetime.fromisoformat(created_at_str)
             if log_date < one_week_ago:
                 continue
 
             status_name = status_id_to_name_map.get(log.get("status"))
             column_name = HUNTFLOW_STATUSES_TO_COLUMNS.get(status_name)
-            if not column_name or (i + 1) >= len(logs) or logs[i + 1].get("type") != "COMMENT":
+
+            if not column_name:
                 continue
 
-            stage_index = FUNNEL_STAGES_ORDER.index(column_name)
-            for stage in FUNNEL_STAGES_ORDER[0:stage_index + 1]:
-                if stage not in counted_stages:
-                    weekly_counts[stage] += 1
-                    counted_stages.add(stage)
+            if (i + 1) < len(logs) and logs[i + 1].get("type") == "COMMENT":
+                stage_index = FUNNEL_STAGES_ORDER.index(column_name)
+                for stage in FUNNEL_STAGES_ORDER[0:stage_index + 1]:
+                    if stage not in counted_stages:
+                        weekly_counts[stage] += 1
+                        counted_stages.add(stage)
+
     except Exception as e:
-        logging.warning(f"Ошибка при обработке логов кандидата {applicant_id} для вакансии {vacancy_id}: {e}")
+        logging.warning(
+            f"Ошибка при обработке логов кандидата {applicant_id} для вакансии {vacancy_id}: {e}\n{traceback.format_exc()}")
 
     return weekly_counts
 
@@ -174,21 +182,31 @@ async def generate_recruitment_funnel_report() -> Optional[Dict[str, Any]]:
         account_id = accounts_response.json()["items"][0]["id"]
         logging.info(f"Успешно подключились к аккаунту ID: {account_id}")
 
-        coworkers_map = await get_coworkers(api_client, account_id)
+        coworkers_task = _fetch_all_paginated_items(api_client, f"/accounts/{account_id}/coworkers")
+        statuses_task = api_client.request("GET", f"/accounts/{account_id}/vacancies/statuses")
+        coworkers_items, statuses_response = await asyncio.gather(coworkers_task, statuses_task)
 
-        statuses_response = await api_client.request("GET", f"/accounts/{account_id}/vacancies/statuses")
+        coworkers_map = {item["id"]: item["name"] for item in coworkers_items}
+        logging.info(f"Успешно загружено {len(coworkers_map)} рекрутеров (общий список).")
+
         statuses_items = statuses_response.json().get("items", [])
         status_maps = {
-            'name_to_id': {status["name"]: status["id"] for status in statuses_items},
-            'id_to_name': {status["id"]: status["name"] for status in statuses_items}
+            'name_to_id': {s["name"]: s["id"] for s in statuses_items},
+            'id_to_name': {s["id"]: s["name"] for s in statuses_items}
         }
 
-        vacancies_url = f"/accounts/{account_id}/vacancies"
-        all_vacancies = await _fetch_all_paginated_items(api_client, vacancies_url, params={"opened": "true"})
+        all_vacancies = await _fetch_all_paginated_items(api_client, f"/accounts/{account_id}/vacancies",
+                                                         params={"opened": "true"})
         logging.info(f"Найдено {len(all_vacancies)} активных вакансий. Начинаю сбор данных...")
 
-        tasks = [_build_funnel_row(api_client, account_id, v, status_maps) for v in all_vacancies if
-                 v.get("position") in PRIORITY_VACANCIES]
+        semaphore = asyncio.Semaphore(10)
+
+        async def build_row_with_semaphore(vacancy: Dict) -> Dict:
+            async with semaphore:
+                return await _build_funnel_row(api_client, account_id, vacancy, status_maps)
+
+        tasks = [build_row_with_semaphore(v) for v in all_vacancies]
+
         all_vacancies_data = await asyncio.gather(*tasks)
 
         all_vacancies_data.sort(key=lambda x: not x.get('is_priority', False))
