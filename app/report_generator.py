@@ -199,7 +199,7 @@ async def generate_recruitment_funnel_report() -> Optional[Dict[str, Any]]:
                                                          params={"opened": "true"})
         logging.info(f"Найдено {len(all_vacancies)} активных вакансий. Начинаю сбор данных...")
 
-        semaphore = asyncio.Semaphore(10)
+        semaphore = asyncio.Semaphore(7)
 
         async def build_row_with_semaphore(vacancy: Dict) -> Dict:
             async with semaphore:
