@@ -3,11 +3,13 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import JSONResponse
+
 from . import cache_manager, config, report_generator
 from .token_manager import token_proxy
 
@@ -72,6 +74,12 @@ async def show_report_table(request: Request):
         "coworkers": coworkers
     })
 
+@app.get("/status")
+async def get_status():
+    return {
+        "is_updating": cache_manager.get_update_status(),
+        "last_updated_str": cache_manager.get_last_updated_time_msk()
+    }
 
 @app.post("/update-comment", status_code=200)
 async def update_comment_endpoint(request_data: CommentUpdateRequest):
@@ -102,9 +110,16 @@ async def download_report_endpoint():
 
 
 @app.post("/refresh-report")
-async def refresh_report_endpoint():
+async def refresh_report_endpoint(background_tasks: BackgroundTasks):
     if not token_proxy._access_token:
         raise HTTPException(status_code=403, detail="Токен API не задан.")
+
+    if cache_manager.get_update_status():
+        return JSONResponse(
+            status_code=409,
+            content={"message": "Обновление уже выполняется."}
+        )
+
     logging.info("Запрос на принудительное обновление отчета.")
-    await cache_manager.update_cached_data()
-    return {"message": "Отчет успешно обновлен!"}
+    background_tasks.add_task(cache_manager.update_cached_data)
+    return {"message": "Обновление запущено в фоновом режиме."}

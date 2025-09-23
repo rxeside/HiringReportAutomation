@@ -11,6 +11,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 _cached_data: Dict[str, Any] = {"vacancies": [], "coworkers": {}, "last_updated": None}
 _cache_lock = asyncio.Lock()
 
+_update_lock = asyncio.Lock()
+_is_updating = False
+
 
 async def load_cache() -> None:
     global _cached_data
@@ -64,9 +67,17 @@ async def _save_cache_internal() -> None:
 
 
 async def update_cached_data() -> None:
-    try:
-        fetched_data = await report_generator.generate_recruitment_funnel_report()
-        async with _cache_lock:
+    global _is_updating
+    if _update_lock.locked():
+        logging.info("Попытка запуска обновления, когда оно уже выполняется. Пропуск.")
+        return
+
+    async with _update_lock:
+        _is_updating = True
+        logging.info(">>> Начало процесса обновления данных...")
+        try:
+            fetched_data = await report_generator.generate_recruitment_funnel_report()
+
             if fetched_data is not None:
                 existing_comments = {
                     row.get('название вакансии'): row.get('комментарий', '')
@@ -85,10 +96,13 @@ async def update_cached_data() -> None:
                 logging.info("Кэшированные данные успешно обновлены и сохранены.")
             else:
                 logging.warning("Сборщик данных вернул None, кэш не будет обновлен.")
-    except Exception as e:
-        import traceback
-        logging.error(f"КРИТИЧЕСКАЯ ОШИБКА во время обновления кэша: {e}")
-        logging.error(traceback.format_exc())
+        except Exception as e:
+            import traceback
+            logging.error(f"КРИТИЧЕСКАЯ ОШИБКА во время обновления кэша: {e}")
+            logging.error(traceback.format_exc())
+        finally:
+            _is_updating = False
+            logging.info("<<< Процесс обновления данных завершен.")
 
 
 async def update_comment(vacancy_name: str, comment: str) -> bool:
@@ -114,6 +128,8 @@ def get_last_updated_time_msk() -> Optional[datetime]:
         return last_updated.astimezone(timezone(timedelta(hours=3)))
     return None
 
+def get_update_status() -> bool:
+    return _is_updating
 
 def get_cached_vacancies() -> List[Dict[str, Any]]:
     return _cached_data.get("vacancies", [])

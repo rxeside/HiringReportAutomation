@@ -1,15 +1,83 @@
 document.addEventListener('DOMContentLoaded', () => {
-    initRefreshButton();
+    let wasUpdating = false;
+
     initCommentEditing();
     initFilters();
+    initRefreshButton();
+
+    const pollStatus = async () => {
+        try {
+            const response = await fetch('/status');
+            if (!response.ok) {
+                console.error('Ошибка при получении статуса.');
+                return;
+            }
+            const status = await response.json();
+
+            updateUI(status);
+
+            if (wasUpdating && !status.is_updating) {
+                window.location.reload();
+            }
+
+            wasUpdating = status.is_updating;
+
+        } catch (error) {
+            console.error('Сетевая ошибка при опросе статуса:', error);
+        }
+    };
+
+    setInterval(pollStatus, 5000);
+    pollStatus();
 });
+
+
+function updateUI(status) {
+    const overlay = document.getElementById('update-overlay');
+    const refreshButton = document.getElementById('refreshButton');
+    const lastUpdatedSpan = document.getElementById('last-updated-time');
+
+    if (status.is_updating) {
+        overlay.classList.remove('hidden');
+        if (refreshButton) {
+            refreshButton.disabled = true;
+            refreshButton.textContent = 'Обновление...';
+        }
+    } else {
+        overlay.classList.add('hidden');
+        if (refreshButton) {
+            refreshButton.disabled = false;
+            refreshButton.textContent = 'Обновить сейчас';
+        }
+    }
+
+    if (lastUpdatedSpan && status.last_updated_str) {
+        lastUpdatedSpan.textContent = status.last_updated_str;
+    }
+}
+
 
 function initRefreshButton() {
     const refreshButton = document.getElementById('refreshButton');
     if (refreshButton) {
-        refreshButton.addEventListener('click', handleRefreshClick);
+        refreshButton.addEventListener('click', async function() {
+            try {
+                const response = await fetch('/refresh-report', { method: 'POST' });
+                const data = await response.json();
+
+                if (response.ok) {
+                    updateUI({ is_updating: true, last_updated_str: document.getElementById('last-updated-time')?.textContent });
+                } else {
+                    alert('Ошибка: ' + (data.message || 'Не удалось запустить обновление.'));
+                }
+            } catch (error) {
+                console.error('Сетевая ошибка при запуске обновления:', error);
+                alert('Произошла ошибка при отправке запроса на обновление.');
+            }
+        });
     }
 }
+
 
 function initCommentEditing() {
     const tableBody = document.querySelector('table tbody');
@@ -75,31 +143,8 @@ function applyFilters() {
     });
 }
 
-async function handleRefreshClick() {
-    const button = this;
-    button.disabled = true;
-    button.textContent = 'Обновление...';
-
-    try {
-        const response = await fetch('/refresh-report', { method: 'POST' });
-        const data = await response.json();
-        if (response.ok) {
-            alert(data.message + '\nСтраница будет перезагружена.');
-            window.location.reload();
-        } else {
-            alert('Ошибка при обновлении: ' + (data.detail || 'Неизвестная ошибка'));
-        }
-    } catch (error) {
-        console.error('Сетевая ошибка при обновлении:', error);
-        alert('Произошла ошибка при отправке запроса на обновление.');
-    } finally {
-        button.disabled = false;
-        button.textContent = 'Обновить сейчас';
-    }
-}
 
 let activeTextarea = null;
-
 
 function handleTableClick(event) {
     const cell = event.target.closest('.comment-cell');
@@ -110,7 +155,6 @@ function handleTableClick(event) {
     if (!span) return;
     switchToEditMode(span, cell);
 }
-
 
 function switchToEditMode(span, cell) {
     const originalComment = span.textContent.trim();
@@ -125,7 +169,6 @@ function switchToEditMode(span, cell) {
     activeTextarea.addEventListener('blur', finishEditing);
     activeTextarea.addEventListener('keydown', handleKeyDown);
 }
-
 
 async function finishEditing() {
     if (!activeTextarea) return;
@@ -165,7 +208,6 @@ async function finishEditing() {
         span.textContent = originalComment;
     }
 }
-
 
 function handleKeyDown(event) {
     if (event.key === 'Enter' && !event.shiftKey) {
