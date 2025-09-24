@@ -101,9 +101,13 @@ function initFilters() {
 
     new TomSelect(recruiterFilterElement, {
         options: recruiterOptions,
-        items: ['all'],
-        allowEmptyOption: true,
-        plugins: ['clear_button'],
+        plugins: ['remove_button'],
+
+        onItemAdd: function() {
+            this.setTextboxValue('');
+            this.blur();
+        },
+
         onChange: function() {
             applyFilters();
         }
@@ -115,24 +119,23 @@ function initFilters() {
 function applyFilters() {
     const priorityToggle = document.getElementById('priority-toggle');
     const tomSelectInstance = document.getElementById('recruiter-filter').tomselect;
-    const selectedRecruiterId = tomSelectInstance.getValue();
+    const selectedRecruiterIds = tomSelectInstance.getValue();
 
     const rows = document.querySelectorAll('table tbody tr');
-
     const showOnlyPriority = priorityToggle.checked;
 
     rows.forEach(row => {
         const isPriority = row.dataset.priority === 'true';
         const priorityMatch = !showOnlyPriority || isPriority;
 
+        const memberIds = JSON.parse(row.dataset.members || '[]');
         let recruiterMatch = false;
-        if (selectedRecruiterId === 'all' || selectedRecruiterId === '') {
+
+        if (selectedRecruiterIds.length === 0) {
             recruiterMatch = true;
         } else {
-            const memberIds = JSON.parse(row.dataset.members || '[]');
-            if (memberIds.includes(parseInt(selectedRecruiterId, 10))) {
-                recruiterMatch = true;
-            }
+            const selectedIdsAsNumbers = selectedRecruiterIds.map(id => parseInt(id, 10));
+            recruiterMatch = selectedIdsAsNumbers.some(id => memberIds.includes(id));
         }
 
         if (priorityMatch && recruiterMatch) {

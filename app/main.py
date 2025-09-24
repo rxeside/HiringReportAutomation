@@ -35,9 +35,9 @@ async def startup_event():
         if not cache_exists:
             logging.info("Кэш пуст. Запускаю ПЕРВОЕ обновление (блокирующее)...")
             await cache_manager.update_cached_data()
-        else:
-            logging.info("Кэш найден. Запускаю ПЛАНОВОЕ обновление в фоновом режиме...")
-            asyncio.create_task(cache_manager.update_cached_data())
+        # else:
+        #     logging.info("Кэш найден. Запускаю ПЛАНОВОЕ обновление в фоновом режиме...")
+        #     asyncio.create_task(cache_manager.update_cached_data())
 
         scheduler.add_job(
             cache_manager.update_cached_data, "interval",
