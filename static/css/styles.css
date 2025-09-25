@@ -190,6 +190,14 @@ tr:nth-child(even) {
     transition: .4s;
 }
 
+.filter-group .ts-control {
+    width: 300px;
+}
+
+.filter-group .vacancy-filter-select + .ts-control {
+    width: 450px;
+}
+
 input:checked + .slider {
     background-color: #007bff;
 }

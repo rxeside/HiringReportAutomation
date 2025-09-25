@@ -89,6 +89,7 @@ function initCommentEditing() {
 function initFilters() {
     const priorityToggle = document.getElementById('priority-toggle');
     const recruiterFilterElement = document.getElementById('recruiter-filter');
+    const vacancyFilterElement = document.getElementById('vacancy-filter');
 
     if (priorityToggle) {
         priorityToggle.addEventListener('change', applyFilters);
@@ -102,24 +103,40 @@ function initFilters() {
     new TomSelect(recruiterFilterElement, {
         options: recruiterOptions,
         plugins: ['remove_button'],
-
         onItemAdd: function() {
             this.setTextboxValue('');
             this.blur();
         },
-
-        onChange: function() {
-            applyFilters();
-        }
+        onChange: applyFilters
     });
+
+    if (window.reportData && window.reportData.length > 0) {
+        const vacancyOptions = window.reportData.map(row => ({
+            value: row['название вакансии'],
+            text: row['название вакансии']
+        }));
+
+        new TomSelect(vacancyFilterElement, {
+            options: vacancyOptions,
+            plugins: ['remove_button'],
+            onItemAdd: function() {
+                this.setTextboxValue('');
+                this.blur();
+            },
+            onChange: applyFilters
+        });
+    }
 
     applyFilters();
 }
 
 function applyFilters() {
     const priorityToggle = document.getElementById('priority-toggle');
-    const tomSelectInstance = document.getElementById('recruiter-filter').tomselect;
-    const selectedRecruiterIds = tomSelectInstance.getValue();
+    const recruiterTomSelect = document.getElementById('recruiter-filter').tomselect;
+    const vacancyTomSelect = document.getElementById('vacancy-filter').tomselect;
+
+    const selectedRecruiterIds = recruiterTomSelect ? recruiterTomSelect.getValue() : [];
+    const selectedVacancyNames = vacancyTomSelect ? vacancyTomSelect.getValue() : [];
 
     const rows = document.querySelectorAll('table tbody tr');
     const showOnlyPriority = priorityToggle.checked;
@@ -138,7 +155,15 @@ function applyFilters() {
             recruiterMatch = selectedIdsAsNumbers.some(id => memberIds.includes(id));
         }
 
-        if (priorityMatch && recruiterMatch) {
+        const vacancyName = row.dataset.vacancyName;
+        let vacancyMatch = false;
+        if (selectedVacancyNames.length === 0) {
+            vacancyMatch = true;
+        } else {
+            vacancyMatch = selectedVacancyNames.includes(vacancyName);
+        }
+
+        if (priorityMatch && recruiterMatch && vacancyMatch) {
             row.classList.remove('hidden-by-filters');
         } else {
             row.classList.add('hidden-by-filters');

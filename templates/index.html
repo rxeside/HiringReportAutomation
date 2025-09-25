@@ -38,6 +38,10 @@
             </div>
         </div>
         <div class="toolbar">
+             <div class="filter-group">
+                <label for="vacancy-filter">Вакансия:</label>
+                <select id="vacancy-filter" class="vacancy-filter-select" multiple></select>
+            </div>
             <div class="filter-group">
                 <label for="recruiter-filter">Рекрутер:</label>
                 <select id="recruiter-filter" multiple></select>
@@ -65,6 +69,7 @@
                           class="{{ 'priority' if row.is_priority else '' }}"
                           data-priority="{{ row.is_priority|string|lower }}"
                           data-members="{{ row.members|tojson }}"
+                          data-vacancy-name="{{ row['название вакансии'] }}"
                          >
                             <td>{{ row['название вакансии'] }}</td>
                             {% for stage in ['коннект', 'интервью с HR', 'интервью с заказчиком', 'финальное интервью', 'выставлен оффер', 'вышел на работу'] %}
@@ -87,6 +92,7 @@
     </div>
     <script>
         window.coworkersData = {{ coworkers|tojson|safe }};
+        window.reportData = {{ report_data|tojson|safe }};
     </script>
     <script src="{{ url_for('static', path='js/main.js') }}" defer></script>
 </body>
