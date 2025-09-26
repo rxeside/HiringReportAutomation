@@ -24,7 +24,7 @@ FUNNEL_STAGES_ORDER = [
 HUNTFLOW_STATUSES_TO_COLUMNS = {
     "Коннект": "коннект", "Интервью с HR": "интервью с HR",
     "Интервью с заказчиком": "интервью с заказчиком", "Финальное интервью": "финальное интервью",
-    "Предложение о работе": "выставлен оффер", "Вышел на работу": "вышел на работу",
+    "Выставлен оффер": "выставлен оффер", "Вышел на работу": "вышел на работу",
 }
 
 
@@ -55,6 +55,8 @@ async def _process_applicant_logs(api_client: HuntflowAPI, account_id: int, appl
     counted_stages = set()
     one_week_ago = datetime.now(timezone.utc) - timedelta(days=7)
 
+    STAGES_WITHOUT_COMMENT = {"коннект", "выставлен оффер", "вышел на работу"}
+
     try:
         logs_url = f"/accounts/{account_id}/applicants/{applicant_id}/logs"
         all_logs = await _fetch_all_paginated_items(api_client, logs_url, params={"vacancy": vacancy_id})
@@ -78,7 +80,19 @@ async def _process_applicant_logs(api_client: HuntflowAPI, account_id: int, appl
             if not column_name:
                 continue
 
-            if (i + 1) < len(logs) and logs[i + 1].get("type") == "COMMENT":
+            should_count_stage = False
+            next_log_exists = (i + 1) < len(logs)
+
+            if column_name in STAGES_WITHOUT_COMMENT:
+                should_count_stage = True
+
+            elif next_log_exists and logs[i + 1].get("type") == "COMMENT":
+                should_count_stage = True
+
+            elif next_log_exists and logs[i + 1].get("type") == "STATUS":
+                should_count_stage = True
+
+            if should_count_stage:
                 stage_index = FUNNEL_STAGES_ORDER.index(column_name)
                 for stage in FUNNEL_STAGES_ORDER[0:stage_index + 1]:
                     if stage not in counted_stages:
