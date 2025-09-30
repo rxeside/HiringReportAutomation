@@ -4,10 +4,10 @@ from huntflow_api_client import HuntflowAPI
 from huntflow_api_client.tokens.token import ApiToken
 import httpx
 from openpyxl.styles import PatternFill
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time
 import logging
 from io import BytesIO
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import traceback
 from .token_manager import token_proxy
 
@@ -27,6 +27,23 @@ HUNTFLOW_STATUSES_TO_COLUMNS = {
     "Выставлен оффер": "выставлен оффер", "Вышел на работу": "вышел на работу",
 }
 
+
+def get_report_week_range(today: datetime) -> Tuple[datetime, datetime]:
+    msk_tz = timezone(timedelta(hours=3))
+    today_msk = today.astimezone(msk_tz)
+
+    days_since_friday = (today_msk.weekday() + 2) % 7
+    if days_since_friday == 0:
+        days_since_friday = 7
+
+    last_friday_date = today_msk.date() - timedelta(days=days_since_friday)
+
+    last_saturday_date = last_friday_date - timedelta(days=6)
+
+    start_date = datetime.combine(last_saturday_date, time.min, tzinfo=msk_tz)
+    end_date = datetime.combine(last_friday_date, time.max, tzinfo=msk_tz)
+
+    return start_date.astimezone(timezone.utc), end_date.astimezone(timezone.utc)
 
 async def _fetch_all_paginated_items(api_client: HuntflowAPI, url: str, params: Dict = None) -> List[Dict]:
     all_items = []
@@ -49,11 +66,18 @@ async def _fetch_all_paginated_items(api_client: HuntflowAPI, url: str, params: 
     return all_items
 
 
-async def _process_applicant_logs(api_client: HuntflowAPI, account_id: int, applicant: Dict, vacancy_id: int, status_id_to_name_map: Dict) -> Dict:
+async def _process_applicant_logs(
+    api_client: HuntflowAPI,
+    account_id: int,
+    applicant: Dict,
+    vacancy_id: int,
+    status_id_to_name_map: Dict,
+    start_date: datetime,
+    end_date: datetime
+) -> Dict:
     weekly_counts = {stage: 0 for stage in FUNNEL_STAGES_ORDER}
     applicant_id = applicant.get("id")
     counted_stages = set()
-    one_week_ago = datetime.now(timezone.utc) - timedelta(days=7)
 
     STAGES_WITHOUT_COMMENT = {"коннект", "выставлен оффер", "вышел на работу"}
 
@@ -71,7 +95,7 @@ async def _process_applicant_logs(api_client: HuntflowAPI, account_id: int, appl
                 continue
 
             log_date = datetime.fromisoformat(created_at_str)
-            if log_date < one_week_ago:
+            if not (start_date <= log_date <= end_date):
                 continue
 
             status_name = status_id_to_name_map.get(log.get("status"))
@@ -106,7 +130,14 @@ async def _process_applicant_logs(api_client: HuntflowAPI, account_id: int, appl
     return weekly_counts
 
 
-async def _build_funnel_row(api_client: HuntflowAPI, account_id: int, vacancy: Dict, status_maps: Dict) -> Dict:
+async def _build_funnel_row(
+    api_client: HuntflowAPI,
+    account_id: int,
+    vacancy: Dict,
+    status_maps: Dict,
+    start_date: datetime,
+    end_date: datetime
+) -> Dict:
     vacancy_position = vacancy.get("position", "Без названия")
     vacancy_id = vacancy["id"]
     member_ids = await get_vacancy_coworkers(api_client, account_id, vacancy_id)
@@ -116,8 +147,9 @@ async def _build_funnel_row(api_client: HuntflowAPI, account_id: int, vacancy: D
     for column_name in FUNNEL_STAGES_ORDER:
         funnel_row[column_name] = {"total": 0, "current": 0}
 
-    weekly_counts = await get_factual_weekly_funnel_counts(api_client, account_id, vacancy_id,
-                                                           status_maps['id_to_name'])
+    weekly_counts = await get_factual_weekly_funnel_counts(
+        api_client, account_id, vacancy_id, status_maps['id_to_name'], start_date, end_date
+    )
     for stage_name, count in weekly_counts.items():
         funnel_row[stage_name]["current"] = count
 
@@ -167,13 +199,22 @@ async def get_total_applicants_on_stage(api_client: HuntflowAPI, account_id: int
         return 0
 
 
-async def get_factual_weekly_funnel_counts(api_client: HuntflowAPI, account_id: int, vacancy_id: int, status_id_to_name_map: Dict) -> Dict:
+async def get_factual_weekly_funnel_counts(
+    api_client: HuntflowAPI,
+    account_id: int,
+    vacancy_id: int,
+    status_id_to_name_map: Dict,
+    start_date: datetime,
+    end_date: datetime
+) -> Dict:
     weekly_factual_counts = {stage: 0 for stage in FUNNEL_STAGES_ORDER}
     applicants_url = f"/accounts/{account_id}/applicants/search"
     all_applicants = await _fetch_all_paginated_items(api_client, applicants_url, params={"vacancy": [vacancy_id]})
 
     for applicant in all_applicants:
-        applicant_counts = await _process_applicant_logs(api_client, account_id, applicant, vacancy_id, status_id_to_name_map)
+        applicant_counts = await _process_applicant_logs(
+            api_client, account_id, applicant, vacancy_id, status_id_to_name_map, start_date, end_date
+        )
         for stage, count in applicant_counts.items():
             weekly_factual_counts[stage] += count
 
@@ -184,6 +225,9 @@ async def generate_recruitment_funnel_report() -> Optional[Dict[str, Any]]:
     if not token_proxy._access_token:
         logging.error("Токен Huntflow не предоставлен.")
         return None
+
+    start_date, end_date = get_report_week_range(datetime.now(timezone.utc))
+    logging.info(f"Формирование отчета за период: с {start_date.isoformat()} по {end_date.isoformat()} UTC")
 
     api_client = HuntflowAPI(
         base_url="https://api.huntflow.ru",
@@ -217,8 +261,9 @@ async def generate_recruitment_funnel_report() -> Optional[Dict[str, Any]]:
 
         async def build_row_with_semaphore(vacancy: Dict) -> Dict:
             async with semaphore:
-                return await _build_funnel_row(api_client, account_id, vacancy, status_maps)
-
+                return await _build_funnel_row(
+                    api_client, account_id, vacancy, status_maps, start_date, end_date
+                )
         tasks = [build_row_with_semaphore(v) for v in all_vacancies]
 
         all_vacancies_data = await asyncio.gather(*tasks)
