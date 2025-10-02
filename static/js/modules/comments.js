@@ -61,9 +61,11 @@ function switchToEditMode(span, cell) {
 
 function handleTableClick(event) {
     const cell = event.target.closest('.comment-cell');
-    if (!cell || cell.querySelector('textarea') || event.target.tagName !== 'SPAN') {
+
+    if (!cell || cell.querySelector('textarea')) {
         return;
     }
+
     const span = cell.querySelector('.editable-comment');
     if (span) {
         switchToEditMode(span, cell);
