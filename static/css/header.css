@@ -1,0 +1,24 @@
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.header-left, .header-right, .header-center {
+    flex: 1;
+}
+
+.header-left { text-align: left; }
+.header-center { text-align: center; }
+.header-right { text-align: right; }
+
+.header h1 {
+    margin: 0 0 4px 0;
+    font-size: 1.8em;
+}
+
+.last-updated {
+    font-size: 0.8em;
+    color: #6c757d;
+}

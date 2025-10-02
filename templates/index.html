@@ -1,99 +1,85 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Воронка найма</title>
-    <link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/styles.css') }}">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
-</head>
-<body>
-    <div id="update-overlay" class="update-overlay hidden">
-        <div class="update-box">
-            <div class="spinner"></div>
-            <p>Идет обновление данных, пожалуйста, подождите...</p>
+{% extends "base.html" %}
+
+{% block content %}
+<div id="update-overlay" class="update-overlay hidden">
+    <div class="update-box">
+        <div class="spinner"></div>
+        <p>Идет обновление данных, пожалуйста, подождите...</p>
+    </div>
+</div>
+
+<div id="app-container" data-coworkers='{{ coworkers|tojson|safe }}' data-report='{{ report_data|tojson|safe }}'>
+    <header class="header">
+        <div class="header-left">
+            <button id="refreshButton" class="btn btn-primary">Обновить сейчас</button>
+        </div>
+        <div class="header-center">
+            <h1>Отчет по воронке найма</h1>
+            <div id="last-updated-time" class="last-updated">
+                {% if last_updated %}
+                    Последнее обновление: {{ last_updated.strftime('%d.%m.%Y %H:%M:%S') }} МСК
+                {% else %}
+                    Данные еще не обновлялись.
+                {% endif %}
+            </div>
+        </div>
+        <div class="header-right">
+            <a href="/download-report" class="btn btn-secondary">Скачать XLSX</a>
+        </div>
+    </header>
+
+    <div class="toolbar">
+         <div class="filter-group">
+            <label for="vacancy-filter">Вакансия:</label>
+            <select id="vacancy-filter" class="vacancy-filter-select" multiple></select>
+        </div>
+        <div class="filter-group">
+            <label for="recruiter-filter">Рекрутер:</label>
+            <select id="recruiter-filter" multiple></select>
+        </div>
+        <div class="filter-group">
+            <label for="priority-toggle">Только приоритетные</label>
+            <label class="switch">
+                <input type="checkbox" id="priority-toggle" checked>
+                <span class="slider round"></span>
+            </label>
         </div>
     </div>
-    <div class="container">
-        <div class="header">
-            <div class="header-left">
-                <button id="refreshButton" class="btn btn-primary">Обновить сейчас</button>
-            </div>
-            <div class="header-center">
-                <h1>Отчет по воронке найма</h1>
-                <div class="last-updated">
-                    {% if last_updated %}
-                        Последнее обновление: {{ last_updated.strftime('%d.%m.%Y %H:%M:%S') }} МСК
-                    {% else %}
-                        Данные еще не обновлялись.
-                    {% endif %}
-                </div>
-            </div>
-            <div class="header-right">
-                <a href="/download-report" class="btn btn-secondary">Скачать XLSX</a>
-            </div>
-        </div>
-        <div class="toolbar">
-             <div class="filter-group">
-                <label for="vacancy-filter">Вакансия:</label>
-                <select id="vacancy-filter" class="vacancy-filter-select" multiple></select>
-            </div>
-            <div class="filter-group">
-                <label for="recruiter-filter">Рекрутер:</label>
-                <select id="recruiter-filter" multiple></select>
-            </div>
-            <div class="filter-group">
-                <label for="priority-toggle">Только приоритетные</label>
-                <label class="switch">
-                    <input type="checkbox" id="priority-toggle" checked>
-                    <span class="slider round"></span>
-                </label>
-            </div>
-        </div>
-        <table>
-            <thead>
-                <tr>
-                    {% for header in headers %}
-                        <th>{{ header }}</th>
-                    {% endfor %}
-                </tr>
-            </thead>
-            <tbody>
-                {% if report_data %}
-                    {% for row in report_data %}
-                         <tr
-                          class="{{ 'priority' if row.is_priority else '' }}"
-                          data-priority="{{ row.is_priority|string|lower }}"
-                          data-members="{{ row.members|tojson }}"
-                          data-vacancy-name="{{ row['название вакансии'] }}"
-                         >
-                            <td>{{ row['название вакансии'] }}</td>
-                            {% for stage in ['коннект', 'интервью с HR', 'интервью с заказчиком', 'финальное интервью', 'выставлен оффер', 'вышел на работу'] %}
-                                <td>{{ row[stage].total }} ({{ row[stage].current }})</td>
-                            {% endfor %}
-                            <td class="comment-cell" data-vacancy-name="{{ row['название вакансии'] }}">
-                                <span class="editable-comment">{{ row['комментарий'] }}</span>
-                            </td>
-                        </tr>
-                    {% endfor %}
-                {% else %}
-                    <tr>
-                        <td colspan="{{ headers|length }}" class="no-data">
-                            Данные не найдены. Возможно, нет активных приоритетных вакансий или произошла ошибка.
+
+    <table>
+        <thead>
+            <tr>
+                {% for header in headers %}
+                    <th>{{ header }}</th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% if report_data %}
+                {% for row in report_data %}
+                     <tr
+                      class="{{ 'priority' if row.is_priority else '' }}"
+                      data-priority="{{ row.is_priority|string|lower }}"
+                      data-members="{{ row.members|tojson }}"
+                      data-vacancy-name="{{ row['название вакансии'] }}"
+                     >
+                        <td>{{ row['название вакансии'] }}</td>
+                        {% for stage in ['коннект', 'интервью с HR', 'интервью с заказчиком', 'финальное интервью', 'выставлен оффер', 'вышел на работу'] %}
+                            <td>{{ row[stage].total }} ({{ row[stage].current }})</td>
+                        {% endfor %}
+                        <td class="comment-cell" data-vacancy-name="{{ row['название вакансии'] }}">
+                            <span class="editable-comment">{{ row['комментарий'] }}</span>
                         </td>
                     </tr>
-                {% endif %}
-            </tbody>
-        </table>
-    </div>
-    <script>
-        window.coworkersData = {{ coworkers|tojson|safe }};
-        window.reportData = {{ report_data|tojson|safe }};
-    </script>
-    <script src="{{ url_for('static', path='js/main.js') }}" defer></script>
-</body>
-</html>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="{{ headers|length }}" class="no-data">
+                        Данные не найдены. Возможно, нет активных приоритетных вакансий или произошла ошибка.
+                    </td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -1,0 +1,51 @@
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th, td {
+    border: 1px solid #dee2e6;
+    padding: 12px;
+    text-align: left;
+}
+
+thead {
+    background-color: #e9ecef;
+}
+
+tr:nth-child(even) {
+    background-color: #f8f9fa;
+}
+
+tr.priority {
+    background-color: #fff3cd !important;
+}
+
+tr.hidden-by-filters {
+    display: none;
+}
+
+.no-data {
+    text-align: center;
+    padding: 50px;
+    font-size: 1.2em;
+    color: #6c757d;
+}
+
+.comment-cell .editable-comment {
+    min-width: 150px;
+    display: block;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    cursor: pointer;
+}
+
+.comment-cell .editing-comment {
+    width: 100%;
+    min-height: 50px;
+    box-sizing: border-box;
+    padding: 8px;
+    border: 1px solid #007bff;
+    border-radius: 4px;
+    resize: vertical;
+}
