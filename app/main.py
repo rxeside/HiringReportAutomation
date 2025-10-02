@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
@@ -39,14 +39,19 @@ async def startup_event():
         #     logging.info("Кэш найден. Запускаю ПЛАНОВОЕ обновление в фоновом режиме...")
         #     asyncio.create_task(cache_manager.update_cached_data())
 
+        msk_tz = timezone(timedelta(hours=3))
+
         scheduler.add_job(
-            cache_manager.update_cached_data, "interval",
-            seconds=config.UPDATE_INTERVAL_SECONDS, id="update_report_job",
-            replace_existing=True,
-            next_run_time=datetime.now() + timedelta(seconds=config.UPDATE_INTERVAL_SECONDS)
+            cache_manager.update_cached_data,
+            trigger="cron",
+            hour=0,
+            minute=0,
+            timezone=msk_tz,
+            id="update_report_job",
+            replace_existing=True
         )
         scheduler.start()
-        logging.info(f"Планировщик запущен. Следующее обновление через {config.UPDATE_INTERVAL_SECONDS} секунд.")
+        logging.info("Планировщик запущен. Обновление будет выполняться ежедневно в 00:00 по МСК.")
     else:
         logging.error("ВНИМАНИЕ: Токены HUNTFLOW не найдены. Проверьте .env или cache/tokens.json")
         logging.warning("Планировщик не запущен, т.к. токен API не предоставлен.")
