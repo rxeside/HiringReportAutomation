@@ -45,7 +45,7 @@
 **1. Клонируйте репозиторий:**
 ```bash
 git clone https://github.com/rxeside/HiringReportAutomation.git
-cd ваш-репозиторий
+cd HiringReportAutomation
 ```
 
 **2. Создайте файл конфигурации:**
