@@ -44,7 +44,7 @@
 
 **1. Клонируйте репозиторий:**
 ```bash
-git clone https://github.com/ваш-логин/ваш-репозиторий.git
+git clone https://github.com/rxeside/HiringReportAutomation.git
 cd ваш-репозиторий
 ```
 
