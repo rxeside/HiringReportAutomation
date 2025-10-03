@@ -46,3 +46,13 @@
 ```bash
 git clone https://github.com/ваш-логин/ваш-репозиторий.git
 cd ваш-репозиторий
+```
+
+**2. Создайте файл конфигурации:**
+Создайте файл .env в корневой папке проекта
+```
+HUNTFLOW_API_TOKEN="ВАШ_РЕФРЕШ_ДОСТУПА"
+HUNTFLOW_REFRESH_TOKEN="ВАШ_РЕФРЕШ_ТОКЕН"
+CACHE_FILE_PATH="cache/report_cache.json"
+```
+
