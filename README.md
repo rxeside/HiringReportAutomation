@@ -81,3 +81,7 @@ docker-compose up -d --build
 | `POST`| `/refresh-report`    | Запускает фоновый процесс обновления.     |
 | `POST`| `/update-comment`    | Сохраняет новый комментарий для вакансии. |
 | `GET` | `/download-report`   | Генерирует и отдает отчет в формате XLSX.|
+
+
+## Документация
+https://docs.google.com/document/d/1vQP7RwTfJI6rwTMhJxnC_GDM_-Le37Dss_4SzGrwMXo
