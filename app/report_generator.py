@@ -232,11 +232,27 @@ async def generate_recruitment_funnel_report() -> Optional[Dict[str, Any]]:
     api_client = HuntflowAPI(
         base_url="https://api.huntflow.ru",
         token_proxy=token_proxy,
-        auto_refresh_tokens=True
+        auto_refresh_tokens=False
     )
 
     try:
-        accounts_response = await api_client.request("GET", "/accounts")
+        try:
+            accounts_response = await api_client.request("GET", "/accounts")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                logging.warning("Токен истек. Запускаю принудительное обновление...")
+
+                success = await token_proxy.refresh_tokens_manually()
+
+                if success:
+                    logging.info("Токен успешно обновлен. Повторяю запрос к /accounts...")
+                    accounts_response = await api_client.request("GET", "/accounts")
+                else:
+                    logging.critical("Не удалось обновить токен. Процесс сбора данных прерван.")
+                    return None
+            else:
+                raise
+
         account_id = accounts_response.json()["items"][0]["id"]
         logging.info(f"Успешно подключились к аккаунту ID: {account_id}")
 
