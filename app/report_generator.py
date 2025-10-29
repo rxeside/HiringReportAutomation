@@ -14,8 +14,8 @@ from .token_manager import token_proxy
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 PRIORITY_VACANCIES = {
-    "РОП  NA AM", "Директор по персоналу 2025", "Руководитель проектов в маркетинг",
-    "Менеджер по прогреву воронки", "Тимлид проджектов в PD",
+    "Проджект в PD с потенциалом лида", "Performance Marketing Manager с потенциалом лида", "Product Marketing Manager с потенциалом лида",
+    "Старший системный администратор", "SMM с потенциалом тимлида (навыки копирайтинга обязательны)", "Специалист КПД с потенциалом руководителя",
 }
 FUNNEL_STAGES_ORDER = [
     "коннект", "интервью с HR", "интервью с заказчиком", "финальное интервью",
