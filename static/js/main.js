@@ -1,11 +1,9 @@
-// Глобальные переменные для графиков и селектов
 let funnelChart = null;
 let rejectionChart = null;
 let vacancyTomSelect = null;
 let recruiterTomSelect = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Установка дат (последние 90 дней по умолчанию)
     const dateEndInput = document.getElementById('date-end');
     const dateStartInput = document.getElementById('date-start');
     
@@ -16,13 +14,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     dateEndInput.valueAsDate = today;
     dateStartInput.valueAsDate = pastDate;
 
-    // 2. Инициализация селектов и загрузка списка фильтров
     await initFilters();
 
-    // 3. Загрузка данных
     await loadAnalytics();
 
-    // 4. Кнопка "Применить"
     document.getElementById('apply-filters').addEventListener('click', loadAnalytics);
 });
 
@@ -31,7 +26,6 @@ async function initFilters() {
         const response = await fetch('/api/filters');
         const data = await response.json();
 
-        // Вакансии
         const vacancySelect = document.getElementById('vacancy-select');
         data.vacancies.forEach(v => {
             const opt = document.createElement('option');
@@ -45,7 +39,6 @@ async function initFilters() {
             maxItems: null
         });
 
-        // Рекрутеры
         const recruiterSelect = document.getElementById('recruiter-select');
         Object.entries(data.coworkers).forEach(([id, name]) => {
             const opt = document.createElement('option');
@@ -68,7 +61,6 @@ async function loadAnalytics() {
     const startDate = document.getElementById('date-start').value;
     const endDate = document.getElementById('date-end').value;
     
-    // Получаем значения из TomSelect
     const vacancies = vacancyTomSelect ? vacancyTomSelect.getValue() : [];
     const recruiters = recruiterTomSelect ? recruiterTomSelect.getValue() : [];
 
@@ -104,7 +96,6 @@ function updateKPI(data) {
     document.getElementById('kpi-total').textContent = data.total_candidates;
     document.getElementById('kpi-time').innerHTML = `${data.avg_time_to_offer} <span class="unit">дн.</span>`;
     
-    // Ищем кол-во вышедших на работу (или принявших оффер)
     const hiredStage = data.funnel.find(s => s.stage === 'вышел на работу');
     document.getElementById('kpi-hired').textContent = hiredStage ? hiredStage.count : 0;
 }
@@ -128,7 +119,7 @@ function renderFunnelChart(funnelData) {
             }]
         },
         options: {
-            indexAxis: 'y', // Горизонтальный
+            indexAxis: 'y',
             responsive: true,
             maintainAspectRatio: false,
             plugins: { legend: { display: false } }
@@ -139,7 +130,6 @@ function renderFunnelChart(funnelData) {
 function renderRejectionChart(rejections) {
     const ctx = document.getElementById('rejectionChart').getContext('2d');
     
-    // Берем топ 10
     const topRejections = rejections.sort((a,b) => b.count - a.count).slice(0, 10);
     const labels = topRejections.map(d => d.reason);
     const values = topRejections.map(d => d.count);

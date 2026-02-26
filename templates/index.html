@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 
 {% block content %}
-<!-- Подключаем Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <div id="app">
@@ -10,7 +9,6 @@
         <div class="last-updated">Данные обновлены: <span id="last-updated-date">-</span></div>
     </header>
 
-    <!-- Панель фильтров -->
     <div class="card toolbar-card">
         <div class="filter-group">
             <label>Период:</label>
@@ -36,7 +34,6 @@
         </div>
     </div>
 
-    <!-- Основные метрики (Big Numbers) -->
     <div class="kpi-grid">
         <div class="card kpi-card">
             <div class="kpi-title">Всего кандидатов</div>
@@ -52,10 +49,8 @@
         </div>
     </div>
 
-    <!-- Основной контент: Воронка и Таблица -->
     <div class="main-grid">
 
-        <!-- Левая колонка: График воронки -->
         <div class="card chart-card">
             <h3>Воронка кандидатов</h3>
             <div class="chart-container">
@@ -63,7 +58,6 @@
             </div>
         </div>
 
-        <!-- Правая колонка: Таблица конверсии -->
         <div class="card table-card">
             <h3>Поэтапная конверсия</h3>
             <div class="table-responsive">
@@ -82,7 +76,6 @@
         </div>
     </div>
 
-    <!-- Нижний блок: Отказы и Источники -->
     <div class="bottom-grid">
          <div class="card chart-card">
             <h3>Причины отказов (Топ 10)</h3>
