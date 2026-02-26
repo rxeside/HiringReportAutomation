@@ -1,85 +1,99 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div id="update-overlay" class="update-overlay hidden">
-    <div class="update-box">
-        <div class="spinner"></div>
-        <p>Идет обновление данных, пожалуйста, подождите...</p>
-    </div>
-</div>
+<!-- Подключаем Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-<div id="app-container" data-coworkers='{{ coworkers|tojson|safe }}' data-report='{{ report_data|tojson|safe }}'>
+<div id="app">
     <header class="header">
-        <div class="header-left">
-            <button id="refreshButton" class="btn btn-primary">Обновить сейчас</button>
-        </div>
-        <div class="header-center">
-            <h1>Отчет по воронке найма</h1>
-            <div id="last-updated-time" class="last-updated">
-                {% if last_updated %}
-                    Последнее обновление: {{ last_updated.strftime('%d.%m.%Y %H:%M:%S') }} МСК
-                {% else %}
-                    Данные еще не обновлялись.
-                {% endif %}
-            </div>
-        </div>
-        <div class="header-right">
-            <a href="/download-report" class="btn btn-secondary">Скачать XLSX</a>
-        </div>
+        <h1>Воронка найма (Analytics)</h1>
+        <div class="last-updated">Данные обновлены: <span id="last-updated-date">-</span></div>
     </header>
 
-    <div class="toolbar">
+    <!-- Панель фильтров -->
+    <div class="card toolbar-card">
+        <div class="filter-group">
+            <label>Период:</label>
+            <div class="date-inputs">
+                <input type="date" id="date-start" class="form-control">
+                <span>&mdash;</span>
+                <input type="date" id="date-end" class="form-control">
+            </div>
+        </div>
+
+        <div class="filter-group" style="flex-grow: 1;">
+            <label>Вакансии:</label>
+            <select id="vacancy-select" multiple placeholder="Выберите вакансии..."></select>
+        </div>
+
          <div class="filter-group">
-            <label for="vacancy-filter">Вакансия:</label>
-            <select id="vacancy-filter" class="vacancy-filter-select" multiple></select>
+            <label>Рекрутер:</label>
+            <select id="recruiter-select" multiple placeholder="Все рекрутеры..."></select>
         </div>
-        <div class="filter-group">
-            <label for="recruiter-filter">Рекрутер:</label>
-            <select id="recruiter-filter" multiple></select>
-        </div>
-        <div class="filter-group">
-            <label for="priority-toggle">Только приоритетные</label>
-            <label class="switch">
-                <input type="checkbox" id="priority-toggle" checked>
-                <span class="slider round"></span>
-            </label>
+
+        <div class="filter-actions">
+            <button id="apply-filters" class="btn btn-primary">Применить</button>
         </div>
     </div>
 
-    <table>
-        <thead>
-            <tr>
-                {% for header in headers %}
-                    <th>{{ header }}</th>
-                {% endfor %}
-            </tr>
-        </thead>
-        <tbody>
-            {% if report_data %}
-                {% for row in report_data %}
-                     <tr
-                      class="{{ 'priority' if row.is_priority else '' }}"
-                      data-priority="{{ row.is_priority|string|lower }}"
-                      data-members="{{ row.members|tojson }}"
-                      data-vacancy-name="{{ row['название вакансии'] }}"
-                     >
-                        <td>{{ row['название вакансии'] }}</td>
-                        {% for stage in ['коннект', 'интервью с HR', 'интервью с заказчиком', 'финальное интервью', 'выставлен оффер', 'вышел на работу'] %}
-                            <td>{{ row[stage].total }} ({{ row[stage].current }})</td>
-                        {% endfor %}
-                        <td class="comment-cell" data-vacancy-name="{{ row['название вакансии'] }}">
-                            <span class="editable-comment">{{ row['комментарий'] }}</span>
-                        </td>
-                    </tr>
-                {% endfor %}
-            {% else %}
-                <tr>
-                    <td colspan="{{ headers|length }}" class="no-data">
-                        Данные не найдены. Возможно, нет активных приоритетных вакансий или произошла ошибка.
-                    </td>
-                </tr>
-            {% endif %}
-        </tbody>
-    </table>
+    <!-- Основные метрики (Big Numbers) -->
+    <div class="kpi-grid">
+        <div class="card kpi-card">
+            <div class="kpi-title">Всего кандидатов</div>
+            <div class="kpi-value" id="kpi-total">0</div>
+        </div>
+        <div class="card kpi-card">
+            <div class="kpi-title">Средний срок до оффера</div>
+            <div class="kpi-value" id="kpi-time">0 <span class="unit">дн.</span></div>
+        </div>
+         <div class="card kpi-card">
+            <div class="kpi-title">Принято офферов</div>
+            <div class="kpi-value" id="kpi-hired">0</div>
+        </div>
+    </div>
+
+    <!-- Основной контент: Воронка и Таблица -->
+    <div class="main-grid">
+
+        <!-- Левая колонка: График воронки -->
+        <div class="card chart-card">
+            <h3>Воронка кандидатов</h3>
+            <div class="chart-container">
+                <canvas id="funnelChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Правая колонка: Таблица конверсии -->
+        <div class="card table-card">
+            <h3>Поэтапная конверсия</h3>
+            <div class="table-responsive">
+                <table class="data-table" id="conversion-table">
+                    <thead>
+                        <tr>
+                            <th>Этап</th>
+                            <th class="text-right">Кол-во</th>
+                            <th class="text-right">Conv (шаг)</th>
+                            <th class="text-right">Conv (общ)</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Нижний блок: Отказы и Источники -->
+    <div class="bottom-grid">
+         <div class="card chart-card">
+            <h3>Причины отказов (Топ 10)</h3>
+            <div class="chart-container">
+                <canvas id="rejectionChart"></canvas>
+            </div>
+        </div>
+         <div class="card list-card">
+            <h3>Источники</h3>
+            <div id="sources-list" class="simple-list"></div>
+        </div>
+    </div>
 </div>
 {% endblock %}

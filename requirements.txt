@@ -10,3 +10,4 @@ python-multipart
 APScheduler
 aiofiles
 python-dotenv
+pandas

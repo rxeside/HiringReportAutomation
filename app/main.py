@@ -1,130 +1,62 @@
-import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
-from fastapi.responses import HTMLResponse, StreamingResponse
+from datetime import datetime, timedelta
+from typing import List, Optional
+from fastapi import FastAPI, Query, Request
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
-from starlette.responses import JSONResponse
 
-from . import cache_manager, config, report_generator
-from .token_manager import token_proxy
+from .analytics_engine import engine
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-app = FastAPI(title="Hiring Report Dashboard", version="1.0.0")
+app = FastAPI(title="Hiring Report Dashboard 2.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
-scheduler = AsyncIOScheduler()
-class CommentUpdateRequest(BaseModel):
-    vacancy_name: str
-    comment: str
 
 
 @app.on_event("startup")
 async def startup_event():
-    logging.info("Инициализация приложения...")
-    await cache_manager.load_cache()
-
-    if token_proxy.get_access_token():
-        logging.info("Токен Huntflow успешно загружен.")
-        cache_exists = bool(cache_manager.get_cached_vacancies())
-        if not cache_exists:
-            logging.info("Кэш пуст. Запускаю ПЕРВОЕ обновление (блокирующее)...")
-            await cache_manager.update_cached_data()
-        # else:
-        #     logging.info("Кэш найден. Запускаю ПЛАНОВОЕ обновление в фоновом режиме...")
-        #     asyncio.create_task(cache_manager.update_cached_data())
-
-        msk_tz = timezone(timedelta(hours=3))
-
-        scheduler.add_job(
-            cache_manager.update_cached_data,
-            trigger="cron",
-            hour=0,
-            minute=0,
-            timezone=msk_tz,
-            id="update_report_job",
-            replace_existing=True
-        )
-        scheduler.start()
-        logging.info("Планировщик запущен. Обновление будет выполняться ежедневно в 00:00 по МСК.")
-    else:
-        logging.error("ВНИМАНИЕ: Токены HUNTFLOW не найдены. Проверьте .env или cache/tokens.json")
-        logging.warning("Планировщик не запущен, т.к. токен API не предоставлен.")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logging.info("Остановка приложения...")
-    if scheduler.running:
-        scheduler.shutdown()
-    logging.info("Планировщик остановлен.")
+    logging.info("Загрузка данных в аналитический движок...")
+    engine.load_data()
 
 
 @app.get("/", response_class=HTMLResponse)
-async def show_report_table(request: Request):
-    report_data = cache_manager.get_cached_vacancies()
-    coworkers = cache_manager.get_cached_coworkers()
-    last_updated = cache_manager.get_last_updated_time_msk()
-    headers = ["Название вакансии"] + report_generator.FUNNEL_STAGES_ORDER + ["Комментарий"]
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "headers": headers,
-        "report_data": report_data,
-        "last_updated": last_updated,
-        "coworkers": coworkers
-    })
+async def index(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
-@app.get("/status")
-async def get_status():
+
+@app.get("/api/analytics")
+async def get_analytics(
+        start_date: str = Query(..., description="YYYY-MM-DD"),
+        end_date: str = Query(..., description="YYYY-MM-DD"),
+        vacancies: Optional[List[str]] = Query(None),
+        recruiters: Optional[List[str]] = Query(None)
+):
+    """
+    Основной метод API. Принимает фильтры, возвращает JSON со всей статистикой.
+    """
+    try:
+        s_date = datetime.strptime(start_date, "%Y-%m-%d")
+        e_date = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+
+        stats = engine.get_filtered_stats(
+            start_date=s_date,
+            end_date=e_date,
+            vacancy_filter=vacancies,
+            recruiter_filter=recruiters
+        )
+        return stats
+    except ValueError:
+        return {"error": "Invalid date format. Use YYYY-MM-DD"}
+
+
+@app.get("/api/filters")
+async def get_filters_data():
+    """
+    Возвращает список доступных вакансий и рекрутеров для заполнения селектов на фронте
+    """
     return {
-        "is_updating": cache_manager.get_update_status(),
-        "last_updated_str": cache_manager.get_last_updated_time_msk()
+        "vacancies": sorted(engine.df['vacancy'].unique().tolist()) if not engine.df.empty else [],
+        "coworkers": engine.coworkers
     }
-
-@app.post("/update-comment", status_code=200)
-async def update_comment_endpoint(request_data: CommentUpdateRequest):
-    logging.info(f"Запрос на обновление комментария для: '{request_data.vacancy_name}'")
-    success = await cache_manager.update_comment(
-        request_data.vacancy_name,
-        request_data.comment
-    )
-    if not success:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Вакансия '{request_data.vacancy_name}' не найдена в кэше."
-        )
-    return {"message": "Комментарий успешно сохранен."}
-
-
-@app.get("/download-report")
-async def download_report_endpoint():
-    report_data = cache_manager.get_cached_vacancies()
-    if not report_data:
-        raise HTTPException(status_code=404, detail="Нет данных для генерации отчета.")
-    xlsx_file = report_generator.create_xlsx_report(report_data)
-    return StreamingResponse(
-        xlsx_file,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={'Content-Disposition': 'attachment; filename="hiring_funnel_report.xlsx"'}
-    )
-
-
-@app.post("/refresh-report")
-async def refresh_report_endpoint(background_tasks: BackgroundTasks):
-    if not token_proxy._access_token:
-        raise HTTPException(status_code=403, detail="Токен API не задан.")
-
-    if cache_manager.get_update_status():
-        return JSONResponse(
-            status_code=409,
-            content={"message": "Обновление уже выполняется."}
-        )
-
-    logging.info("Запрос на принудительное обновление отчета.")
-    background_tasks.add_task(cache_manager.update_cached_data)
-    return {"message": "Обновление запущено в фоновом режиме."}
