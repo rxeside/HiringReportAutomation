@@ -24,7 +24,6 @@ class AnalyticsEngine:
         self.last_updated = None
 
     def load_data(self):
-        """Загружает JSON и превращает его в Pandas DataFrame"""
         if not os.path.exists(self.data_file):
             logging.warning(f"Файл данных {self.data_file} не найден.")
             return
@@ -42,7 +41,6 @@ class AnalyticsEngine:
 
         self.df = pd.DataFrame(applicants)
 
-
         date_cols = ['created_at', 'offer_date', 'hired_date']
         for col in date_cols:
             if col in self.df.columns:
@@ -51,14 +49,14 @@ class AnalyticsEngine:
         self.df['stage_index'] = self.df['current_status'].apply(
             lambda x: FUNNEL_STAGES_ORDER.index(x) if x in FUNNEL_STAGES_ORDER else -1
         )
-
         logging.info(f"Данные загружены в Pandas. Всего строк: {len(self.df)}")
 
     def get_filtered_stats(self,
                            start_date: datetime,
                            end_date: datetime,
                            vacancy_filter: List[str] = None,
-                           recruiter_filter: List[str] = None):
+                           recruiter_filter: List[str] = None,
+                           state_filter: List[str] = None):
 
         if self.df.empty:
             return {}
@@ -77,25 +75,21 @@ class AnalyticsEngine:
             recruiter_filter_str = [str(x) for x in recruiter_filter]
             filtered_df = filtered_df[filtered_df['recruiter_id_str'].isin(recruiter_filter_str)]
 
-        if filtered_df.empty:
-            return {"total_candidates": 0, "funnel": [], "rejections": [], "sources": []}
+        if state_filter:
+            filtered_df = filtered_df[filtered_df['vacancy_state'].isin(state_filter)]
 
-        # --- РАСЧЕТ МЕТРИК ---
+        if filtered_df.empty:
+            return {"total_candidates": 0, "active_vacancies": 0, "funnel": [], "rejections_stacked": {},
+                    "rejections_flat": [], "sources": []}
+
         funnel_data = []
         total_candidates = len(filtered_df)
-
         prev_count = total_candidates
 
         for i, stage_name in enumerate(FUNNEL_STAGES_ORDER):
             count = len(filtered_df[filtered_df['stage_index'] >= i])
-
-            conversion_step = 0
-            if prev_count > 0:
-                conversion_step = round((count / prev_count) * 100, 1)
-
-            conversion_total = 0
-            if total_candidates > 0:
-                conversion_total = round((count / total_candidates) * 100, 1)
+            conversion_step = round((count / prev_count) * 100, 1) if prev_count > 0 else 0
+            conversion_total = round((count / total_candidates) * 100, 1) if total_candidates > 0 else 0
 
             funnel_data.append({
                 "stage": stage_name,
@@ -105,13 +99,31 @@ class AnalyticsEngine:
             })
             prev_count = count
 
-        rejections = filtered_df['rejection_reason'].value_counts().reset_index()
-        rejections.columns = ['reason', 'count']
-        rejections_data = rejections.to_dict('records')
+        rej_df = filtered_df[filtered_df['rejection_reason'].notnull()]
 
-        sources = filtered_df['source'].value_counts().reset_index()
-        sources.columns = ['source', 'count']
-        sources_data = sources.to_dict('records')
+        rejections_stacked = {}
+        if not rej_df.empty:
+            rej_grouped = rej_df.groupby(['current_status', 'rejection_reason']).size().unstack(fill_value=0)
+            rejections_stacked = rej_grouped.to_dict(orient='index')
+
+        rejections_flat = []
+        if not rej_df.empty:
+            rejections_counts = rej_df['rejection_reason'].value_counts().reset_index()
+            rejections_counts.columns = ['reason', 'count']
+            rejections_flat = rejections_counts.to_dict('records')
+
+        sources_data = []
+        if not filtered_df.empty:
+            for source, group in filtered_df.groupby('source'):
+                total = len(group)
+                hired = len(group[group['stage_index'] >= 5])
+                probation = len(group[group['stage_index'] == 6])
+                sources_data.append({
+                    "source": str(source),
+                    "total": total,
+                    "hired": hired,
+                    "probation": probation
+                })
 
         hired_df = filtered_df[filtered_df['offer_date'].notnull()]
         avg_time_to_offer = 0
@@ -120,8 +132,10 @@ class AnalyticsEngine:
 
         return {
             "total_candidates": total_candidates,
+            "active_vacancies": int(filtered_df['vacancy'].nunique()),
             "funnel": funnel_data,
-            "rejections": rejections_data,
+            "rejections_stacked": rejections_stacked,
+            "rejections_flat": rejections_flat,
             "sources": sources_data,
             "avg_time_to_offer": round(avg_time_to_offer, 1),
             "coworkers": self.coworkers,

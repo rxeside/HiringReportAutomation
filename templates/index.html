@@ -3,10 +3,24 @@
 {% block content %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
+<div id="update-overlay" class="update-overlay hidden">
+    <div class="update-box">
+        <div class="spinner"></div>
+        <p>Идет обновление данных из Huntflow. Это может занять несколько минут...</p>
+    </div>
+</div>
+
 <div id="app">
     <header class="header">
-        <h1>Воронка найма (Analytics)</h1>
-        <div class="last-updated">Данные обновлены: <span id="last-updated-date">-</span></div>
+        <div class="header-left">
+            <button id="refreshButton" class="btn btn-primary">🔄 Обновить сейчас</button>
+        </div>
+        <div class="header-center">
+            <h1>Воронка найма (Analytics)</h1>
+        </div>
+        <div class="header-right">
+            <div class="last-updated">Данные обновлены: <br><span id="last-updated-date" style="font-weight: bold;">Загрузка...</span></div>
+        </div>
     </header>
 
     <div class="card toolbar-card">
@@ -17,6 +31,15 @@
                 <span>&mdash;</span>
                 <input type="date" id="date-end" class="form-control">
             </div>
+        </div>
+
+        <div class="filter-group">
+            <label>Статус вакансии:</label>
+            <select id="state-select" multiple placeholder="Все статусы...">
+                <option value="OPEN">Открыта</option>
+                <option value="CLOSED">Закрыта</option>
+                <option value="HOLD">Приостановлена</option>
+            </select>
         </div>
 
         <div class="filter-group" style="flex-grow: 1;">
@@ -40,17 +63,16 @@
             <div class="kpi-value" id="kpi-total">0</div>
         </div>
         <div class="card kpi-card">
-            <div class="kpi-title">Средний срок до оффера</div>
-            <div class="kpi-value" id="kpi-time">0 <span class="unit">дн.</span></div>
+            <div class="kpi-title">Вакансий в работе</div>
+            <div class="kpi-value" id="kpi-vacancies">0</div>
         </div>
-         <div class="card kpi-card">
-            <div class="kpi-title">Принято офферов</div>
-            <div class="kpi-value" id="kpi-hired">0</div>
+        <div class="card kpi-card">
+            <div class="kpi-title">Средний срок до оффера</div>
+            <div class="kpi-value" id="kpi-time">0 <span class="unit">календ. дн.</span></div>
         </div>
     </div>
 
     <div class="main-grid">
-
         <div class="card chart-card">
             <h3>Воронка кандидатов</h3>
             <div class="chart-container">
@@ -78,14 +100,41 @@
 
     <div class="bottom-grid">
          <div class="card chart-card">
-            <h3>Причины отказов (Топ 10)</h3>
-            <div class="chart-container">
+            <h3>Причины отказов по этапам</h3>
+            <div class="chart-container" style="height: 350px;">
                 <canvas id="rejectionChart"></canvas>
             </div>
+
+            <button id="toggle-rejections-btn" class="btn btn-secondary" style="margin-top: 15px; width: 100%;">Показать все причины (Таблица)</button>
+
+            <div id="all-rejections-container" style="display: none; margin-top: 15px; max-height: 250px; overflow-y: auto;">
+                <table class="data-table" id="rejections-table">
+                    <thead>
+                        <tr>
+                            <th>Причина отказа</th>
+                            <th class="text-right">Кол-во</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
         </div>
-         <div class="card list-card">
+
+         <div class="card table-card">
             <h3>Источники</h3>
-            <div id="sources-list" class="simple-list"></div>
+            <div class="table-responsive">
+                <table class="data-table" id="sources-table">
+                    <thead>
+                        <tr>
+                            <th>Источник</th>
+                            <th class="text-right" title="Всего кандидатов">Всего</th>
+                            <th class="text-right" title="Вышли на работу">Наняты</th>
+                            <th class="text-right" title="Прошли испытательный">ИС пройден</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>
