@@ -11,3 +11,4 @@ APScheduler
 aiofiles
 python-dotenv
 pandas
+SQLAlchemy

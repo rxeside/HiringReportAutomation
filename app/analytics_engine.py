@@ -1,55 +1,51 @@
-import json
 import pandas as pd
 from datetime import datetime
 from typing import Dict, List, Optional
 import logging
-import os
+from sqlalchemy import create_engine
 
 FUNNEL_STAGES_ORDER = [
-    "коннект",
-    "интервью с HR",
-    "интервью с заказчиком",
-    "финальное интервью",
-    "выставлен оффер",
-    "вышел на работу",
-    "испытательный срок пройден"
+    "коннект", "интервью с HR", "интервью с заказчиком",
+    "финальное интервью", "выставлен оффер",
+    "вышел на работу", "испытательный срок пройден"
 ]
 
 
 class AnalyticsEngine:
-    def __init__(self, data_file: str):
-        self.data_file = data_file
+    def __init__(self, db_url: str):
+        self.db_url = db_url
+        self.db_engine = create_engine(self.db_url)
         self.df = pd.DataFrame()
         self.coworkers = {}
         self.last_updated = None
 
     def load_data(self):
-        if not os.path.exists(self.data_file):
-            logging.warning(f"Файл данных {self.data_file} не найден.")
-            return
+        try:
+            self.df = pd.read_sql_table("applicants", self.db_engine)
 
-        with open(self.data_file, 'r', encoding='utf-8') as f:
-            raw_data = json.load(f)
+            coworkers_df = pd.read_sql_table("coworkers", self.db_engine)
+            if not coworkers_df.empty:
+                self.coworkers = dict(zip(coworkers_df['id'], coworkers_df['name']))
 
-        self.coworkers = raw_data.get("coworkers", {})
-        self.last_updated = raw_data.get("last_updated")
+            state_df = pd.read_sql_table("system_state", self.db_engine)
+            last_upd_row = state_df[state_df['key'] == 'last_updated']
+            if not last_upd_row.empty:
+                self.last_updated = last_upd_row.iloc[0]['value']
 
-        applicants = raw_data.get("applicants", [])
-        if not applicants:
-            self.df = pd.DataFrame()
-            return
+            if not self.df.empty:
+                date_cols = ['created_at', 'offer_date', 'hired_date']
+                for col in date_cols:
+                    if col in self.df.columns:
+                        self.df[col] = pd.to_datetime(self.df[col], errors='coerce').dt.tz_localize(None)
 
-        self.df = pd.DataFrame(applicants)
-
-        date_cols = ['created_at', 'offer_date', 'hired_date']
-        for col in date_cols:
-            if col in self.df.columns:
-                self.df[col] = pd.to_datetime(self.df[col], errors='coerce').dt.tz_localize(None)
-
-        self.df['stage_index'] = self.df['current_status'].apply(
-            lambda x: FUNNEL_STAGES_ORDER.index(x) if x in FUNNEL_STAGES_ORDER else -1
-        )
-        logging.info(f"Данные загружены в Pandas. Всего строк: {len(self.df)}")
+                self.df['stage_index'] = self.df['current_status'].apply(
+                    lambda x: FUNNEL_STAGES_ORDER.index(x) if x in FUNNEL_STAGES_ORDER else -1
+                )
+            logging.info(f"Данные загружены из SQLite в Pandas. Всего строк: {len(self.df)}")
+        except ValueError:
+            logging.warning("Таблицы в БД пока не созданы или пусты. Нажмите 'Обновить'.")
+        except Exception as e:
+            logging.error(f"Ошибка при загрузке из БД: {e}")
 
     def get_filtered_stats(self,
                            start_date: datetime,
@@ -143,4 +139,4 @@ class AnalyticsEngine:
         }
 
 
-engine = AnalyticsEngine("cache/analytics_data.json")
+engine = AnalyticsEngine("sqlite:///cache/huntflow.db")
