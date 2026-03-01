@@ -144,7 +144,7 @@ function renderStackedRejectionChart(stackedData) {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: { position: 'bottom', labels: { boxWidth: 12 } },
+                legend: { display: false },
                 tooltip: { mode: 'index', intersect: false }
             },
             scales: { x: { stacked: true }, y: { stacked: true } }
