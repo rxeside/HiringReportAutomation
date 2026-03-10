@@ -38,8 +38,8 @@ KNOWN_SOURCES = {
     "career": "Карьерный сайт", "site": "Карьерный сайт"
 }
 
+
 async def _fetch_all_paginated(api_client: HuntflowAPI, url: str, params: Dict = None) -> List[Dict]:
-    """Универсальная функция для обхода всех страниц пагинации Huntflow"""
     all_items = []
     current_page = 1
     total_pages = 1
@@ -63,8 +63,8 @@ async def _fetch_all_paginated(api_client: HuntflowAPI, url: str, params: Dict =
             break
     return all_items
 
+
 def _extract_source(applicant: Dict, logs: List[Dict]) -> str:
-    """Умный поиск источника по всем возможным полям"""
     source_field = applicant.get("source")
     if isinstance(source_field, dict) and source_field.get("name"):
         return source_field.get("name")
@@ -97,11 +97,11 @@ def _extract_source(applicant: Dict, logs: List[Dict]) -> str:
 
     return "Не указан"
 
+
 async def _process_applicant(
         api_client: HuntflowAPI, account_id: int, applicant: Dict, vacancy: Dict,
-        statuses_map: Dict, rejections_map: Dict
+        statuses_map: Dict, rejections_map: Dict, recruiter_id: int
 ) -> Optional[Dict]:
-    """Собирает историю одного кандидата"""
     app_id = applicant["id"]
     vac_id = vacancy["id"]
 
@@ -109,7 +109,7 @@ async def _process_applicant(
         "id": app_id,
         "vacancy": vacancy.get("position", "Без названия"),
         "vacancy_state": vacancy.get("state", "OPEN"),
-        "recruiter_id": vacancy.get("account_manager"),
+        "recruiter_id": recruiter_id,
         "source": "Не указан",
         "created_at": applicant.get("created", datetime.now().isoformat()),
         "current_status": None,
@@ -135,10 +135,7 @@ async def _process_applicant(
 
             if our_stage_name:
                 log_date = log.get("created")
-                applicant_data["logs"].append({
-                    "stage": our_stage_name,
-                    "date": log_date
-                })
+                applicant_data["logs"].append({"stage": our_stage_name, "date": log_date})
                 applicant_data["current_status"] = our_stage_name
 
                 if our_stage_name == "выставлен оффер":
@@ -159,20 +156,13 @@ async def _process_applicant(
 
 
 async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
-    """Главная функция сбора данных со всего аккаунта"""
     if not token_proxy._access_token:
-        logging.error("Токен Huntflow не предоставлен.")
         return None
 
-    api_client = HuntflowAPI(
-        base_url="https://api.huntflow.ru",
-        token_proxy=token_proxy,
-        auto_refresh_tokens=False
-    )
+    api_client = HuntflowAPI("https://api.huntflow.ru", token_proxy=token_proxy, auto_refresh_tokens=False)
 
     try:
         logging.info("--- СТАРТ СБОРА ДАННЫХ ИЗ HUNTFLOW ---")
-
         try:
             accounts_response = await api_client.request("GET", "/accounts")
         except httpx.HTTPStatusError as e:
@@ -187,8 +177,6 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
 
         account_id = accounts_response.json()["items"][0]["id"]
 
-        logging.info("Сбор справочников...")
-
         coworkers_raw = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/coworkers")
         coworkers_map = {item["id"]: item["name"] for item in coworkers_raw}
 
@@ -201,26 +189,36 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
         logging.info("Сбор списка вакансий...")
         all_vacancies = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/vacancies")
 
-        logging.info(f"Найдено вакансий: {len(all_vacancies)}")
+        logging.info("Определение рекрутеров для вакансий (около 1 минуты)...")
+        vacancy_recruiters = {}
+        sem_cws = asyncio.Semaphore(10)
+
+        async def fetch_recruiter(vac):
+            async with sem_cws:
+                try:
+                    cws = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/coworkers",
+                                                     params={"vacancy_id": vac["id"]})
+                    if cws: vacancy_recruiters[vac["id"]] = cws[0]["id"]
+                except Exception:
+                    pass
+
+        await asyncio.gather(*(fetch_recruiter(v) for v in all_vacancies))
 
         all_applicants_data = []
         semaphore = asyncio.Semaphore(5)
 
         async def process_vacancy(vacancy):
-            vac_applicants = await _fetch_all_paginated(
-                api_client,
-                f"/accounts/{account_id}/applicants/search",
-                params={"vacancy": vacancy["id"]}
-            )
-
+            vac_applicants = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/applicants/search",
+                                                        params={"vacancy": vacancy["id"]})
             tasks = []
             for app in vac_applicants:
                 async def sem_task(a=app, v=vacancy):
                     async with semaphore:
-                        return await _process_applicant(api_client, account_id, a, v, statuses_map, rejections_map)
+                        rec_id = vacancy_recruiters.get(v["id"])
+                        return await _process_applicant(api_client, account_id, a, v, statuses_map, rejections_map,
+                                                        rec_id)
 
                 tasks.append(sem_task())
-
             results = await asyncio.gather(*tasks)
             return [r for r in results if r]
 
@@ -229,15 +227,12 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
             vac_results = await process_vacancy(vacancy)
             all_applicants_data.extend(vac_results)
 
-        logging.info(f"--- СБОР ЗАВЕРШЕН! Успешно собрано {len(all_applicants_data)} кандидатов ---")
-
+        logging.info(f"--- СБОР ЗАВЕРШЕН! Собрано {len(all_applicants_data)} кандидатов ---")
         return {
             "applicants": all_applicants_data,
             "coworkers": coworkers_map,
             "vacancies": [{"id": v["id"], "name": v["position"], "state": v.get("state")} for v in all_vacancies]
         }
-
     except Exception as e:
-        logging.error(f"КРИТИЧЕСКАЯ ОШИБКА сбора: {e}")
-        logging.error(traceback.format_exc())
+        logging.error(f"Ошибка сбора: {e}")
         return None
