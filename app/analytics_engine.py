@@ -17,6 +17,16 @@ ALLOWED_RECRUITERS = [
 ]
 
 
+def _is_allowed_recruiter(hf_name: str) -> bool:
+    """Умная проверка имени (игнорирует порядок слов и регистр)"""
+    hf_lower = hf_name.lower()
+    for allowed_name in ALLOWED_RECRUITERS:
+        parts = allowed_name.lower().split()
+        if all(part in hf_lower for part in parts):
+            return True
+    return False
+
+
 class AnalyticsEngine:
     def __init__(self, db_url: str):
         self.db_url = db_url
@@ -34,7 +44,7 @@ class AnalyticsEngine:
             if not coworkers_df.empty:
                 full_coworkers = dict(zip(coworkers_df['id'], coworkers_df['name']))
 
-            self.coworkers = {c_id: name for c_id, name in full_coworkers.items() if name in ALLOWED_RECRUITERS}
+            self.coworkers = {c_id: name for c_id, name in full_coworkers.items() if _is_allowed_recruiter(name)}
             allowed_ids = list(self.coworkers.keys())
 
             state_df = pd.read_sql_table("system_state", self.db_engine)
@@ -53,7 +63,9 @@ class AnalyticsEngine:
                 self.df['stage_index'] = self.df['current_status'].apply(
                     lambda x: FUNNEL_STAGES_ORDER.index(x) if x in FUNNEL_STAGES_ORDER else -1
                 )
-            logging.info(f"Данные загружены. Строк после фильтрации рекрутеров: {len(self.df)}")
+
+            logging.info(f"Данные загружены. Найдено рекрутеров из белого списка: {len(self.coworkers)}")
+            logging.info(f"Строк после фильтрации рекрутеров: {len(self.df)}")
         except Exception as e:
             logging.error(f"Ошибка при загрузке из БД: {e}")
 
@@ -62,7 +74,7 @@ class AnalyticsEngine:
                            state_filter: List[str] = None):
 
         if self.df.empty:
-            return {}
+            return self._empty_response()
 
         start = start_date.replace(tzinfo=None)
         end = end_date.replace(tzinfo=None)
@@ -82,7 +94,7 @@ class AnalyticsEngine:
             filtered_df = filtered_df[filtered_df['vacancy_state'].isin(state_filter)]
 
         if filtered_df.empty:
-            return {"total_candidates": 0, "active_vacancies": 0, "funnel": [], "rejections_flat": [], "sources": []}
+            return self._empty_response()
 
         funnel_data = []
         total_candidates = len(filtered_df)
@@ -138,6 +150,19 @@ class AnalyticsEngine:
             "avg_time_to_offer": round(avg_time_to_offer, 1),
             "coworkers": self.coworkers,
             "vacancies_list": sorted(self.df['vacancy'].unique().tolist())
+        }
+
+    def _empty_response(self):
+        """Возвращает безопасный пустой ответ, чтобы фронт не падал в undefined"""
+        return {
+            "total_candidates": 0,
+            "active_vacancies": 0,
+            "funnel": [],
+            "rejections_flat": [],
+            "sources": [],
+            "avg_time_to_offer": 0,
+            "coworkers": self.coworkers,
+            "vacancies_list": sorted(self.df['vacancy'].unique().tolist()) if not self.df.empty else []
         }
 
 
