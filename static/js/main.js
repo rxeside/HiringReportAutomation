@@ -4,12 +4,6 @@ let vacancyTomSelect = null;
 let recruiterTomSelect = null;
 let stateTomSelect = null;
 
-const COLORS = [
-    '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#10b981',
-    '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6', '#d946ef',
-    '#f43f5e', '#a8a29e', '#57534e', '#1e40af', '#166534'
-];
-
 document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('refreshButton').addEventListener('click', handleRefreshClick);
 
@@ -85,7 +79,9 @@ async function loadAnalytics() {
         updateKPI(data);
         renderFunnelChart(data.funnel);
         renderConversionTable(data.funnel);
-        renderStackedRejectionChart(data.rejections_stacked);
+
+        renderRejectionChart(data.rejections_flat);
+
         renderRejectionsTable(data.rejections_flat);
         renderSourcesTable(data.sources);
 
@@ -119,35 +115,33 @@ function renderFunnelChart(funnelData) {
     });
 }
 
-function renderStackedRejectionChart(stackedData) {
+function renderRejectionChart(rejectionsFlat) {
     const ctx = document.getElementById('rejectionChart').getContext('2d');
     if (rejectionChart) rejectionChart.destroy();
 
-    const stages = Object.keys(stackedData);
-    const allReasons = new Set();
-    stages.forEach(stage => Object.keys(stackedData[stage]).forEach(r => allReasons.add(r)));
-    const reasonsArray = Array.from(allReasons);
-
-    const datasets = reasonsArray.map((reason, index) => {
-        return {
-            label: reason,
-            data: stages.map(stage => stackedData[stage][reason] || 0),
-            backgroundColor: COLORS[index % COLORS.length]
-        };
-    });
+    const topRejections = rejectionsFlat.sort((a,b) => b.count - a.count).slice(0, 10);
+    const labels = topRejections.map(d => d.reason);
+    const values = topRejections.map(d => d.count);
 
     rejectionChart = new Chart(ctx, {
         type: 'bar',
-        data: { labels: stages, datasets: datasets },
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Отказов',
+                data: values,
+                backgroundColor: '#ef4444',
+                borderRadius: 4
+            }]
+        },
         options: {
             indexAxis: 'y',
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
                 legend: { display: false },
-                tooltip: { mode: 'index', intersect: false }
-            },
-            scales: { x: { stacked: true }, y: { stacked: true } }
+                tooltip: { mode: 'nearest', intersect: true }
+            }
         }
     });
 }
@@ -156,7 +150,12 @@ function renderRejectionsTable(rejectionsFlat) {
     const tbody = document.querySelector('#rejections-table tbody');
     tbody.innerHTML = '';
     rejectionsFlat.sort((a,b) => b.count - a.count).forEach(r => {
-        tbody.innerHTML += `<tr><td>${r.reason}</td><td class="text-right"><b>${r.count}</b></td></tr>`;
+        tbody.innerHTML += `
+            <tr>
+                <td>${r.reason}</td>
+                <td class="text-right"><b>${r.count}</b></td>
+                <td class="text-right" style="color:#6b7280">${r.percent}</td>
+            </tr>`;
     });
 }
 
@@ -204,7 +203,7 @@ function updateStatusUI(status) {
     if (status.is_updating) {
         overlay.classList.remove('hidden'); btn.disabled = true; btn.textContent = 'Обновление...';
     } else {
-        overlay.classList.add('hidden'); btn.disabled = false; btn.textContent = '🔄 Обновить сейчас';
+        overlay.classList.add('hidden'); btn.disabled = false; btn.textContent = 'Обновить сейчас';
     }
 
     if (status.last_updated_str) {

@@ -22,9 +22,21 @@ HUNTFLOW_STATUSES_TO_COLUMNS = {
     "Финальное интервью": "финальное интервью",
     "Выставлен оффер": "выставлен оффер",
     "Вышел на работу": "вышел на работу",
-    "Испытательный срок пройден": "испытательный срок пройден"
+    "Испытательный срок пройден": "испытательный срок пройден",
+    "ИС пройден": "испытательный срок пройден",
+    "Испытательный срок завершен": "испытательный срок пройден"
 }
 
+KNOWN_SOURCES = {
+    "hh": "hh.ru", "headhunter": "hh.ru",
+    "habr": "Хабр Карьера", "хабр": "Хабр Карьера",
+    "linkedin": "LinkedIn", "линкедин": "LinkedIn",
+    "telegram": "Telegram", "телеграм": "Telegram", "tg": "Telegram",
+    "avito": "Avito", "авито": "Avito",
+    "vk": "ВКонтакте", "вк": "ВКонтакте",
+    "рекомендаци": "Рекомендация", "referral": "Рекомендация",
+    "career": "Карьерный сайт", "site": "Карьерный сайт"
+}
 
 async def _fetch_all_paginated(api_client: HuntflowAPI, url: str, params: Dict = None) -> List[Dict]:
     """Универсальная функция для обхода всех страниц пагинации Huntflow"""
@@ -51,6 +63,39 @@ async def _fetch_all_paginated(api_client: HuntflowAPI, url: str, params: Dict =
             break
     return all_items
 
+def _extract_source(applicant: Dict, logs: List[Dict]) -> str:
+    """Умный поиск источника по всем возможным полям"""
+    source_field = applicant.get("source")
+    if isinstance(source_field, dict) and source_field.get("name"):
+        return source_field.get("name")
+    elif isinstance(source_field, str) and source_field.strip():
+        return source_field
+
+    tags = applicant.get("tags") or []
+    for tag in tags:
+        tag_name = tag.get("name", "").lower()
+        for key, real_name in KNOWN_SOURCES.items():
+            if key in tag_name:
+                return real_name
+        if "source" in tag_name or "источник" in tag_name:
+            return tag.get("name")
+
+    for log in logs:
+        if log.get("type") == "COMMENT":
+            text = log.get("comment", "").lower()
+            if "добавлен" in text or "отклик" in text or "найден" in text:
+                for key, real_name in KNOWN_SOURCES.items():
+                    if key in text:
+                        return real_name
+
+    externals = applicant.get("externals") or []
+    for ext in externals:
+        url = ext.get("url", "").lower()
+        for key, real_name in KNOWN_SOURCES.items():
+            if key in url:
+                return real_name
+
+    return "Не указан"
 
 async def _process_applicant(
         api_client: HuntflowAPI, account_id: int, applicant: Dict, vacancy: Dict,
@@ -60,19 +105,12 @@ async def _process_applicant(
     app_id = applicant["id"]
     vac_id = vacancy["id"]
 
-    # Извлекаем источник
-    source = applicant.get("source")
-    if isinstance(source, dict):
-        source = source.get("name", "Не указан")
-    elif not source:
-        source = "Прямой поиск / Не указан"
-
     applicant_data = {
         "id": app_id,
         "vacancy": vacancy.get("position", "Без названия"),
         "vacancy_state": vacancy.get("state", "OPEN"),
         "recruiter_id": vacancy.get("account_manager"),
-        "source": str(source),
+        "source": "Не указан",
         "created_at": applicant.get("created", datetime.now().isoformat()),
         "current_status": None,
         "rejection_reason": None,
@@ -85,6 +123,8 @@ async def _process_applicant(
     try:
         logs_url = f"/accounts/{account_id}/applicants/{app_id}/logs"
         all_logs = await _fetch_all_paginated(api_client, logs_url, params={"vacancy": vac_id})
+
+        applicant_data["source"] = _extract_source(applicant, all_logs)
 
         status_logs = [log for log in all_logs if log.get("type") == "STATUS"]
         status_logs.sort(key=lambda x: x.get("created", ""))
