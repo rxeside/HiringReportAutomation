@@ -7,6 +7,7 @@ from huntflow_api_client import HuntflowAPI
 import traceback
 
 from .token_manager import token_proxy
+from .analytics_engine import _is_allowed_recruiter
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -105,9 +106,13 @@ async def _process_applicant(
     app_id = applicant["id"]
     vac_id = vacancy["id"]
 
+    vac_name = vacancy.get("position", "Без названия")
+    if vacancy.get("priority") == 1:
+        vac_name = "🚩 " + vac_name
+
     applicant_data = {
         "id": app_id,
-        "vacancy": vacancy.get("position", "Без названия"),
+        "vacancy": vac_name,
         "vacancy_state": vacancy.get("state", "OPEN"),
         "recruiter_id": recruiter_id,
         "source": "Не указан",
@@ -187,7 +192,11 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
         rejections_map = {r["id"]: r["name"] for r in rej_resp.json().get("items", [])}
 
         logging.info("Сбор списка вакансий...")
-        all_vacancies = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/vacancies")
+        all_vacancies = await _fetch_all_paginated(
+            api_client,
+            f"/accounts/{account_id}/vacancies",
+            params={"state": ["OPEN", "CLOSED", "HOLD"]}
+        )
 
         logging.info("Определение рекрутеров для вакансий (около 1 минуты)...")
         vacancy_recruiters = {}
@@ -198,7 +207,23 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
                 try:
                     cws = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/coworkers",
                                                      params={"vacancy_id": vac["id"]})
-                    if cws: vacancy_recruiters[vac["id"]] = cws[0]["id"]
+                    if cws:
+                        assigned_id = None
+                        for cw in cws:
+                            if _is_allowed_recruiter(cw["name"]):
+                                assigned_id = cw["id"]
+                                break
+
+                        if not assigned_id:
+                            for cw in cws:
+                                if cw.get("type") == "manager":
+                                    assigned_id = cw["id"]
+                                    break
+
+                        if not assigned_id:
+                            assigned_id = cws[0]["id"]
+
+                        vacancy_recruiters[vac["id"]] = assigned_id
                 except Exception:
                     pass
 
@@ -231,7 +256,13 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
         return {
             "applicants": all_applicants_data,
             "coworkers": coworkers_map,
-            "vacancies": [{"id": v["id"], "name": v["position"], "state": v.get("state")} for v in all_vacancies]
+            "vacancies": [
+                {
+                    "id": v["id"],
+                    "name": ("🚩 " if v.get("priority") == 1 else "") + v.get("position", "Без названия"),
+                    "state": v.get("state")
+                } for v in all_vacancies
+            ]
         }
     except Exception as e:
         logging.error(f"Ошибка сбора: {e}")
