@@ -112,7 +112,9 @@ class AnalyticsEngine:
             prev_count = count
 
         rejections_flat = []
+        rejections_stacked = {}
         rej_df = filtered_df[filtered_df['rejection_reason'].notnull()]
+
         if not rej_df.empty:
             total_rejections = len(rej_df)
             rejections_counts = rej_df['rejection_reason'].value_counts().reset_index()
@@ -125,6 +127,10 @@ class AnalyticsEngine:
                     "count": row['count'],
                     "percent": f"{percent}%"
                 })
+
+            rej_grouped = rej_df.groupby(['current_status', 'rejection_reason']).size().unstack(fill_value=0)
+            available_stages = [s for s in FUNNEL_STAGES_ORDER if s in rej_grouped.index]
+            rejections_stacked = rej_grouped.reindex(available_stages).to_dict(orient='index')
 
         sources_data = []
         if not filtered_df.empty:
@@ -146,6 +152,7 @@ class AnalyticsEngine:
             "active_vacancies": int(filtered_df['vacancy'].nunique()),
             "funnel": funnel_data,
             "rejections_flat": rejections_flat,
+            "rejections_stacked": rejections_stacked,
             "sources": sources_data,
             "avg_time_to_offer": round(avg_time_to_offer, 1),
             "coworkers": self.coworkers,
@@ -159,6 +166,7 @@ class AnalyticsEngine:
             "active_vacancies": 0,
             "funnel": [],
             "rejections_flat": [],
+            "rejections_stacked": {},
             "sources": [],
             "avg_time_to_offer": 0,
             "coworkers": self.coworkers,

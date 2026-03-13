@@ -4,6 +4,12 @@ let vacancyTomSelect = null;
 let recruiterTomSelect = null;
 let stateTomSelect = null;
 
+const COLORS = [
+    '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#10b981',
+    '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6', '#d946ef',
+    '#f43f5e', '#a8a29e', '#57534e', '#1e40af', '#166534'
+];
+
 document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('refreshButton').addEventListener('click', handleRefreshClick);
 
@@ -80,7 +86,7 @@ async function loadAnalytics() {
         renderFunnelChart(data.funnel);
         renderConversionTable(data.funnel);
 
-        renderRejectionChart(data.rejections_flat);
+        renderStackedRejectionChart(data.rejections_stacked);
 
         renderRejectionsTable(data.rejections_flat);
         renderSourcesTable(data.sources);
@@ -115,25 +121,26 @@ function renderFunnelChart(funnelData) {
     });
 }
 
-function renderRejectionChart(rejectionsFlat) {
+function renderStackedRejectionChart(stackedData) {
     const ctx = document.getElementById('rejectionChart').getContext('2d');
     if (rejectionChart) rejectionChart.destroy();
 
-    const topRejections = rejectionsFlat.sort((a,b) => b.count - a.count).slice(0, 10);
-    const labels = topRejections.map(d => d.reason);
-    const values = topRejections.map(d => d.count);
+    const stages = Object.keys(stackedData);
+    const allReasons = new Set();
+    stages.forEach(stage => Object.keys(stackedData[stage]).forEach(r => allReasons.add(r)));
+    const reasonsArray = Array.from(allReasons);
+
+    const datasets = reasonsArray.map((reason, index) => {
+        return {
+            label: reason,
+            data: stages.map(stage => stackedData[stage][reason] || 0),
+            backgroundColor: COLORS[index % COLORS.length]
+        };
+    });
 
     rejectionChart = new Chart(ctx, {
         type: 'bar',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Отказов',
-                data: values,
-                backgroundColor: '#ef4444',
-                borderRadius: 4
-            }]
-        },
+        data: { labels: stages, datasets: datasets },
         options: {
             indexAxis: 'y',
             responsive: true,
@@ -141,7 +148,8 @@ function renderRejectionChart(rejectionsFlat) {
             plugins: {
                 legend: { display: false },
                 tooltip: { mode: 'nearest', intersect: true }
-            }
+            },
+            scales: { x: { stacked: true }, y: { stacked: true } }
         }
     });
 }
