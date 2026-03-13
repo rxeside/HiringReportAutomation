@@ -44,7 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const t = new Date();
         const p = new Date();
-        p.setDate(t.getDate() - 730); // 2 years
+        p.setDate(t.getDate() - 1095); // 3 years
         document.getElementById('date-end').valueAsDate = t;
         document.getElementById('date-start').valueAsDate = p;
 
