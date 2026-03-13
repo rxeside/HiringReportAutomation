@@ -36,6 +36,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadAnalytics();
 
     document.getElementById('apply-filters').addEventListener('click', loadAnalytics);
+
+    document.getElementById('reset-filters').addEventListener('click', () => {
+        if (vacancyTomSelect) vacancyTomSelect.clear();
+        if (recruiterTomSelect) recruiterTomSelect.clear();
+        if (stateTomSelect) stateTomSelect.clear();
+
+        const t = new Date();
+        const p = new Date();
+        p.setDate(t.getDate() - 730); // 2 years
+        document.getElementById('date-end').valueAsDate = t;
+        document.getElementById('date-start').valueAsDate = p;
+
+        loadAnalytics();
+    });
 });
 
 async function initFilters() {
