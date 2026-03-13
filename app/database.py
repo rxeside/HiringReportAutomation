@@ -21,7 +21,10 @@ class Applicant(Base):
     recruiter_id = Column(Integer)
     source = Column(String)
     created_at = Column(DateTime)
+
     current_status = Column(String)
+    hf_status = Column(String, nullable=True)
+
     rejection_reason = Column(String, nullable=True)
     offer_date = Column(DateTime, nullable=True)
     hired_date = Column(DateTime, nullable=True)

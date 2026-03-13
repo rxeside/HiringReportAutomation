@@ -1,3 +1,4 @@
+import json
 import pandas as pd
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -18,12 +19,10 @@ ALLOWED_RECRUITERS = [
 
 
 def _is_allowed_recruiter(hf_name: str) -> bool:
-    """Умная проверка имени (игнорирует порядок слов и регистр)"""
     hf_lower = hf_name.lower()
     for allowed_name in ALLOWED_RECRUITERS:
         parts = allowed_name.lower().split()
-        if all(part in hf_lower for part in parts):
-            return True
+        if all(part in hf_lower for part in parts): return True
     return False
 
 
@@ -34,11 +33,13 @@ class AnalyticsEngine:
         self.df = pd.DataFrame()
         self.coworkers = {}
         self.last_updated = None
+        self.statuses_order = []
 
     def load_data(self):
         try:
             raw_df = pd.read_sql_table("applicants", self.db_engine)
             coworkers_df = pd.read_sql_table("coworkers", self.db_engine)
+            state_df = pd.read_sql_table("system_state", self.db_engine)
 
             full_coworkers = {}
             if not coworkers_df.empty:
@@ -47,10 +48,11 @@ class AnalyticsEngine:
             self.coworkers = {c_id: name for c_id, name in full_coworkers.items() if _is_allowed_recruiter(name)}
             allowed_ids = list(self.coworkers.keys())
 
-            state_df = pd.read_sql_table("system_state", self.db_engine)
             last_upd_row = state_df[state_df['key'] == 'last_updated']
-            if not last_upd_row.empty:
-                self.last_updated = last_upd_row.iloc[0]['value']
+            if not last_upd_row.empty: self.last_updated = last_upd_row.iloc[0]['value']
+
+            order_row = state_df[state_df['key'] == 'statuses_order']
+            if not order_row.empty: self.statuses_order = json.loads(order_row.iloc[0]['value'])
 
             if not raw_df.empty:
                 self.df = raw_df[raw_df['recruiter_id'].isin(allowed_ids)].copy()
@@ -63,18 +65,17 @@ class AnalyticsEngine:
                 self.df['stage_index'] = self.df['current_status'].apply(
                     lambda x: FUNNEL_STAGES_ORDER.index(x) if x in FUNNEL_STAGES_ORDER else -1
                 )
+                status_to_order = {name: i for i, name in enumerate(self.statuses_order)}
+                self.df['full_stage_index'] = self.df['hf_status'].map(status_to_order).fillna(-1)
 
-            logging.info(f"Данные загружены. Найдено рекрутеров из белого списка: {len(self.coworkers)}")
-            logging.info(f"Строк после фильтрации рекрутеров: {len(self.df)}")
         except Exception as e:
-            logging.error(f"Ошибка при загрузке из БД: {e}")
+            pass
 
     def get_filtered_stats(self, start_date: datetime, end_date: datetime,
                            vacancy_filter: List[str] = None, recruiter_filter: List[str] = None,
                            state_filter: List[str] = None):
 
-        if self.df.empty:
-            return self._empty_response()
+        if self.df.empty: return self._empty_response()
 
         start = start_date.replace(tzinfo=None)
         end = end_date.replace(tzinfo=None)
@@ -82,22 +83,18 @@ class AnalyticsEngine:
         mask = (self.df['created_at'] >= start) & (self.df['created_at'] <= end)
         filtered_df = self.df[mask].copy()
 
-        if vacancy_filter:
-            filtered_df = filtered_df[filtered_df['vacancy'].isin(vacancy_filter)]
-
+        if vacancy_filter: filtered_df = filtered_df[filtered_df['vacancy'].isin(vacancy_filter)]
         if recruiter_filter:
             filtered_df['recruiter_id_str'] = filtered_df['recruiter_id'].fillna(0).astype(int).astype(str)
             recruiter_filter_str = [str(x) for x in recruiter_filter]
             filtered_df = filtered_df[filtered_df['recruiter_id_str'].isin(recruiter_filter_str)]
+        if state_filter: filtered_df = filtered_df[filtered_df['vacancy_state'].isin(state_filter)]
 
-        if state_filter:
-            filtered_df = filtered_df[filtered_df['vacancy_state'].isin(state_filter)]
+        if filtered_df.empty: return self._empty_response()
 
-        if filtered_df.empty:
-            return self._empty_response()
+        total_candidates = len(filtered_df)
 
         funnel_data = []
-        total_candidates = len(filtered_df)
         prev_count = total_candidates
 
         for i, stage_name in enumerate(FUNNEL_STAGES_ORDER):
@@ -111,6 +108,20 @@ class AnalyticsEngine:
             })
             prev_count = count
 
+        full_funnel_data = []
+        prev_count_full = total_candidates
+        for i, stage_name in enumerate(self.statuses_order):
+            count = len(filtered_df[filtered_df['full_stage_index'] >= i])
+            if count == 0 and prev_count_full == 0: continue
+
+            conversion_step = round((count / prev_count_full) * 100, 1) if prev_count_full > 0 else 0
+            conversion_total = round((count / total_candidates) * 100, 1) if total_candidates > 0 else 0
+            full_funnel_data.append({
+                "stage": stage_name, "count": count,
+                "conversion_step": f"{conversion_step}%", "conversion_total": f"{conversion_total}%"
+            })
+            prev_count_full = count
+
         rejections_flat = []
         rejections_stacked = {}
         rej_df = filtered_df[filtered_df['rejection_reason'].notnull()]
@@ -122,11 +133,7 @@ class AnalyticsEngine:
 
             for _, row in rejections_counts.iterrows():
                 percent = round((row['count'] / total_rejections) * 100, 1)
-                rejections_flat.append({
-                    "reason": row['reason'],
-                    "count": row['count'],
-                    "percent": f"{percent}%"
-                })
+                rejections_flat.append({"reason": row['reason'], "count": row['count'], "percent": f"{percent}%"})
 
             rej_grouped = rej_df.groupby(['current_status', 'rejection_reason']).size().unstack(fill_value=0)
             available_stages = [s for s in FUNNEL_STAGES_ORDER if s in rej_grouped.index]
@@ -136,8 +143,7 @@ class AnalyticsEngine:
         if not filtered_df.empty:
             for source, group in filtered_df.groupby('source'):
                 sources_data.append({
-                    "source": str(source),
-                    "total": len(group),
+                    "source": str(source), "total": len(group),
                     "hired": len(group[group['stage_index'] >= 5]),
                     "probation": len(group[group['stage_index'] == 6])
                 })
@@ -151,6 +157,7 @@ class AnalyticsEngine:
             "total_candidates": total_candidates,
             "active_vacancies": int(filtered_df['vacancy'].nunique()),
             "funnel": funnel_data,
+            "full_funnel": full_funnel_data,
             "rejections_flat": rejections_flat,
             "rejections_stacked": rejections_stacked,
             "sources": sources_data,
@@ -162,14 +169,9 @@ class AnalyticsEngine:
     def _empty_response(self):
         """Возвращает безопасный пустой ответ, чтобы фронт не падал в undefined"""
         return {
-            "total_candidates": 0,
-            "active_vacancies": 0,
-            "funnel": [],
-            "rejections_flat": [],
-            "rejections_stacked": {},
-            "sources": [],
-            "avg_time_to_offer": 0,
-            "coworkers": self.coworkers,
+            "total_candidates": 0, "active_vacancies": 0,
+            "funnel": [], "full_funnel": [], "rejections_flat": [], "rejections_stacked": {},
+            "sources": [], "avg_time_to_offer": 0, "coworkers": self.coworkers,
             "vacancies_list": sorted(self.df['vacancy'].unique().tolist()) if not self.df.empty else []
         }
 

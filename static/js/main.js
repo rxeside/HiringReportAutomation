@@ -4,6 +4,9 @@ let vacancyTomSelect = null;
 let recruiterTomSelect = null;
 let stateTomSelect = null;
 
+let currentFunnelMode = 'general';
+let latestData = null;
+
 const COLORS = [
     '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#10b981',
     '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6', '#d946ef',
@@ -47,8 +50,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         p.setDate(t.getDate() - 1095); // 3 years
         document.getElementById('date-end').valueAsDate = t;
         document.getElementById('date-start').valueAsDate = p;
-
         loadAnalytics();
+    });
+
+    document.getElementById('btn-funnel-general').addEventListener('click', (e) => {
+        currentFunnelMode = 'general';
+        e.target.className = 'btn btn-primary';
+        document.getElementById('btn-funnel-full').className = 'btn btn-secondary';
+        updateFunnelUI();
+    });
+
+    document.getElementById('btn-funnel-full').addEventListener('click', (e) => {
+        currentFunnelMode = 'full';
+        e.target.className = 'btn btn-primary';
+        document.getElementById('btn-funnel-general').className = 'btn btn-secondary';
+        updateFunnelUI();
     });
 });
 
@@ -75,9 +91,7 @@ async function initFilters() {
         });
         recruiterTomSelect = new TomSelect(recruiterSelect, { plugins: ['remove_button'], maxItems: null });
 
-    } catch (e) {
-        console.error("Ошибка загрузки фильтров:", e);
-    }
+    } catch (e) {}
 }
 
 async function loadAnalytics() {
@@ -92,22 +106,23 @@ async function loadAnalytics() {
 
     try {
         const response = await fetch(`/api/analytics?${params.toString()}`);
-        const data = await response.json();
+        latestData = await response.json();
 
-        if (data.error) return alert("Ошибка API: " + data.error);
+        if (latestData.error) return alert("Ошибка API: " + latestData.error);
 
-        updateKPI(data);
-        renderFunnelChart(data.funnel);
-        renderConversionTable(data.funnel);
+        updateKPI(latestData);
+        updateFunnelUI();
+        renderStackedRejectionChart(latestData.rejections_stacked);
+        renderRejectionsTable(latestData.rejections_flat);
+        renderSourcesTable(latestData.sources);
+    } catch (e) { }
+}
 
-        renderStackedRejectionChart(data.rejections_stacked);
-
-        renderRejectionsTable(data.rejections_flat);
-        renderSourcesTable(data.sources);
-
-    } catch (e) {
-        console.error("Ошибка сети:", e);
-    }
+function updateFunnelUI() {
+    if (!latestData) return;
+    const dataToRender = currentFunnelMode === 'general' ? latestData.funnel : latestData.full_funnel;
+    renderFunnelChart(dataToRender);
+    renderConversionTable(dataToRender);
 }
 
 function updateKPI(data) {
@@ -127,7 +142,7 @@ function renderFunnelChart(funnelData) {
             datasets: [{
                 label: 'Кандидатов',
                 data: funnelData.map(d => d.count),
-                backgroundColor: '#3b82f6',
+                backgroundColor: currentFunnelMode === 'general' ? '#3b82f6' : '#8b5cf6',
                 borderRadius: 4
             }]
         },
@@ -172,12 +187,7 @@ function renderRejectionsTable(rejectionsFlat) {
     const tbody = document.querySelector('#rejections-table tbody');
     tbody.innerHTML = '';
     rejectionsFlat.sort((a,b) => b.count - a.count).forEach(r => {
-        tbody.innerHTML += `
-            <tr>
-                <td>${r.reason}</td>
-                <td class="text-right"><b>${r.count}</b></td>
-                <td class="text-right" style="color:#6b7280">${r.percent}</td>
-            </tr>`;
+        tbody.innerHTML += `<tr><td>${r.reason}</td><td class="text-right"><b>${r.count}</b></td><td class="text-right" style="color:#6b7280">${r.percent}</td></tr>`;
     });
 }
 
@@ -185,13 +195,7 @@ function renderSourcesTable(sources) {
     const tbody = document.querySelector('#sources-table tbody');
     tbody.innerHTML = '';
     sources.sort((a,b) => b.total - a.total).forEach(row => {
-        tbody.innerHTML += `
-            <tr>
-                <td>${row.source}</td>
-                <td class="text-right"><b>${row.total}</b></td>
-                <td class="text-right" style="color:#10b981"><b>${row.hired}</b></td>
-                <td class="text-right" style="color:#3b82f6"><b>${row.probation}</b></td>
-            </tr>`;
+        tbody.innerHTML += `<tr><td>${row.source}</td><td class="text-right"><b>${row.total}</b></td><td class="text-right" style="color:#10b981"><b>${row.hired}</b></td><td class="text-right" style="color:#3b82f6"><b>${row.probation}</b></td></tr>`;
     });
 }
 
@@ -199,13 +203,7 @@ function renderConversionTable(funnelData) {
     const tbody = document.querySelector('#conversion-table tbody');
     tbody.innerHTML = '';
     funnelData.forEach(row => {
-        tbody.innerHTML += `
-            <tr>
-                <td>${row.stage}</td>
-                <td class="text-right"><b>${row.count}</b></td>
-                <td class="text-right">${row.conversion_step}</td>
-                <td class="text-right" style="color:#6b7280">${row.conversion_total}</td>
-            </tr>`;
+        tbody.innerHTML += `<tr><td>${row.stage}</td><td class="text-right"><b>${row.count}</b></td><td class="text-right">${row.conversion_step}</td><td class="text-right" style="color:#6b7280">${row.conversion_total}</td></tr>`;
     });
 }
 
@@ -215,7 +213,7 @@ async function handleRefreshClick() {
         const data = await response.json();
         if (response.ok) { updateStatusUI({ is_updating: true }); }
         else { alert('Ошибка: ' + (data.message || 'Не удалось запустить обновление.')); }
-    } catch (error) { alert('Произошла ошибка при отправке запроса на обновление.'); }
+    } catch (error) {}
 }
 
 function updateStatusUI(status) {
@@ -227,10 +225,7 @@ function updateStatusUI(status) {
     } else {
         overlay.classList.add('hidden'); btn.disabled = false; btn.textContent = 'Обновить сейчас';
     }
-
-    if (status.last_updated_str) {
-        document.getElementById('last-updated-date').textContent = status.last_updated_str;
-    }
+    if (status.last_updated_str) document.getElementById('last-updated-date').textContent = status.last_updated_str;
 }
 
 let wasUpdating = false;

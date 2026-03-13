@@ -75,7 +75,13 @@
 
     <div class="main-grid">
         <div class="card chart-card">
-            <h3>Воронка кандидатов</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3>Воронка кандидатов</h3>
+                <div class="funnel-toggle" style="display: flex; gap: 5px;">
+                    <button id="btn-funnel-general" class="btn btn-primary" style="padding: 5px 10px; font-size: 12px;">Общая</button>
+                    <button id="btn-funnel-full" class="btn btn-secondary" style="padding: 5px 10px; font-size: 12px;">Полная (Из ХФ)</button>
+                </div>
+            </div>
             <div class="chart-container">
                 <canvas id="funnelChart"></canvas>
             </div>

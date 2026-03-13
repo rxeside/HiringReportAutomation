@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import traceback
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
@@ -63,12 +64,20 @@ async def update_cached_data() -> None:
                             source=a['source'],
                             created_at=_parse_date(a.get('created_at')),
                             current_status=a.get('current_status'),
+                            hf_status=a.get('hf_status'),
                             rejection_reason=a.get('rejection_reason'),
                             offer_date=_parse_date(a.get('offer_date')),
                             hired_date=_parse_date(a.get('hired_date')),
                             is_hired=a.get('is_hired', False)
                         ))
                     db.bulk_save_objects(db_applicants)
+
+                    state_order = db.query(SystemState).filter_by(key="statuses_order").first()
+                    order_json = json.dumps(fetched_data.get('statuses_order', []), ensure_ascii=False)
+                    if not state_order:
+                        db.add(SystemState(key="statuses_order", value=order_json))
+                    else:
+                        state_order.value = order_json
 
                     state = db.query(SystemState).filter_by(key="last_updated").first()
                     now_str = datetime.now(timezone.utc).isoformat()
@@ -89,7 +98,6 @@ async def update_cached_data() -> None:
             else:
                 logging.warning("Сборщик вернул None, БД не обновлена.")
         except Exception as e:
-            import traceback
             logging.error(f"Ошибка обновления: {e}\n{traceback.format_exc()}")
         finally:
             _is_updating = False
