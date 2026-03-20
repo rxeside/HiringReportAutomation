@@ -55,7 +55,7 @@ class AnalyticsEngine:
             if not order_row.empty: self.statuses_order = json.loads(order_row.iloc[0]['value'])
 
             if not raw_df.empty:
-                self.df = raw_df[raw_df['recruiter_id'].isin(allowed_ids)].copy()
+                # self.df = raw_df[raw_df['recruiter_id'].isin(allowed_ids)].copy()
 
                 date_cols = ['created_at', 'offer_date', 'hired_date']
                 for col in date_cols:
