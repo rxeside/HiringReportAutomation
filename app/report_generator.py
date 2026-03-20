@@ -108,6 +108,10 @@ async def _process_applicant(
         logs_url = f"/accounts/{account_id}/applicants/{app_id}/logs"
         all_logs = await _fetch_all_paginated(api_client, logs_url, params={"vacancy": vac_id})
 
+        if all_logs:
+            sorted_all_logs = sorted(all_logs, key=lambda x: x.get("created", ""))
+            applicant_data["created_at"] = sorted_all_logs[0].get("created", applicant_data["created_at"])
+
         applicant_data["source"] = _extract_source(applicant, all_logs)
 
         status_logs = [log for log in all_logs if log.get("type") == "STATUS"]

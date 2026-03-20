@@ -56,17 +56,13 @@ async def update_cached_data() -> None:
                     db.query(Applicant).delete()
                     db_applicants = []
                     for a in fetched_data['applicants']:
-                        first_log_date = a.get('created_at')
-                        if a.get('logs'):
-                            first_log_date = a['logs'][0].get('date', first_log_date)
-
                         db_applicants.append(Applicant(
                             applicant_id=a['id'],
                             vacancy=a['vacancy'],
                             vacancy_state=a['vacancy_state'],
                             recruiter_id=a['recruiter_id'],
                             source=a['source'],
-                            created_at=_parse_date(first_log_date),
+                            created_at=_parse_date(a.get('created_at')),
                             current_status=a.get('current_status'),
                             hf_status=a.get('hf_status'),
                             rejection_reason=a.get('rejection_reason'),
