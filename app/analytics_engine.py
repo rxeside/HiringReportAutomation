@@ -56,6 +56,7 @@ class AnalyticsEngine:
 
             if not raw_df.empty:
                 # self.df = raw_df[raw_df['recruiter_id'].isin(allowed_ids)].copy()
+                self.df = raw_df.copy()
 
                 date_cols = ['created_at', 'offer_date', 'hired_date']
                 for col in date_cols:
