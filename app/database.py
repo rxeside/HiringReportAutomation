@@ -29,6 +29,7 @@ class Applicant(Base):
     offer_date = Column(DateTime, nullable=True)
     hired_date = Column(DateTime, nullable=True)
     is_hired = Column(Boolean, default=False)
+    log_dates = Column(String, nullable=True)
 
 
 class Coworker(Base):

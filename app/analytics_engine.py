@@ -81,7 +81,23 @@ class AnalyticsEngine:
         start = start_date.replace(tzinfo=None)
         end = end_date.replace(tzinfo=None)
 
-        mask = (self.df['created_at'] >= start) & (self.df['created_at'] <= end)
+        def is_active_in_period(row):
+            if pd.notnull(row['created_at']) and start <= row['created_at'] <= end:
+                return True
+
+            log_dates_str = row.get('log_dates')
+            if pd.notnull(log_dates_str) and log_dates_str:
+                try:
+                    dates = json.loads(log_dates_str)
+                    for d_str in dates:
+                        d = datetime.fromisoformat(d_str[:19])
+                        if start <= d <= end:
+                            return True
+                except Exception:
+                    pass
+            return False
+
+        mask = self.df.apply(is_active_in_period, axis=1)
         filtered_df = self.df[mask].copy()
 
         if vacancy_filter: filtered_df = filtered_df[filtered_df['vacancy'].isin(vacancy_filter)]

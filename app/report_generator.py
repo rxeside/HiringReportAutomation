@@ -54,13 +54,10 @@ async def _fetch_all_paginated(api_client: HuntflowAPI, url: str, params: Dict =
             break
     return all_items
 
-
 def _extract_source(applicant: Dict, logs: List[Dict]) -> str:
     source_field = applicant.get("source")
-    if isinstance(source_field, dict) and source_field.get("name"):
-        return source_field.get("name")
-    elif isinstance(source_field, str) and source_field.strip():
-        return source_field
+    if isinstance(source_field, dict) and source_field.get("name"): return source_field.get("name")
+    elif isinstance(source_field, str) and source_field.strip(): return source_field
 
     tags = applicant.get("tags") or []
     for tag in tags:
@@ -81,9 +78,7 @@ def _extract_source(applicant: Dict, logs: List[Dict]) -> str:
         url = ext.get("url", "").lower()
         for key, real_name in KNOWN_SOURCES.items():
             if key in url: return real_name
-
     return "Не указан"
-
 
 async def _process_applicant(
         api_client: HuntflowAPI, account_id: int, applicant: Dict, vacancy: Dict,
@@ -101,7 +96,9 @@ async def _process_applicant(
         "recruiter_id": recruiter_id, "source": "Не указан",
         "created_at": applicant.get("created", datetime.now().isoformat()),
         "current_status": None, "hf_status": None, "rejection_reason": None,
-        "offer_date": None, "hired_date": None, "is_hired": False, "logs": []
+        "offer_date": None, "hired_date": None, "is_hired": False,
+        "logs": [],
+        "log_dates": []
     }
 
     try:
@@ -117,8 +114,9 @@ async def _process_applicant(
         status_logs = [log for log in all_logs if log.get("type") == "STATUS"]
         status_logs.sort(key=lambda x: x.get("created", ""))
 
-        last_real_hf_status = None
+        applicant_data["log_dates"] = [log.get("created") for log in status_logs]
 
+        last_real_hf_status = None
         for log in status_logs:
             hf_status_name = statuses_map.get(log.get("status"))
 
@@ -144,7 +142,6 @@ async def _process_applicant(
         logging.warning(f"Ошибка при обработке кандидата {app_id}: {e}")
         return None
 
-
 async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
     if not token_proxy._access_token: return None
     api_client = HuntflowAPI("https://api.huntflow.ru", token_proxy=token_proxy, auto_refresh_tokens=False)
@@ -157,10 +154,8 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
             if e.response.status_code == 401:
                 if await token_proxy.refresh_tokens_manually():
                     accounts_response = await api_client.request("GET", "/accounts")
-                else:
-                    return None
-            else:
-                raise
+                else: return None
+            else: raise
 
         account_id = accounts_response.json()["items"][0]["id"]
 
@@ -183,19 +178,16 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
 
         vacancy_recruiters = {}
         sem_cws = asyncio.Semaphore(10)
-
         async def fetch_recruiter(vac):
             async with sem_cws:
                 try:
-                    cws = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/coworkers",
-                                                     params={"vacancy_id": vac["id"]})
+                    cws = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/coworkers", params={"vacancy_id": vac["id"]})
                     if cws:
                         assigned_id = None
                         for cw in cws:
                             if _is_allowed_recruiter(cw["name"]):
                                 assigned_id = cw["id"]
                                 break
-
                         if not assigned_id:
                             for cw in cws:
                                 if cw.get("type") == "manager":
@@ -203,25 +195,19 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
                                     break
                         if not assigned_id: assigned_id = cws[0]["id"]
                         vacancy_recruiters[vac["id"]] = assigned_id
-                except Exception:
-                    pass
-
+                except Exception: pass
         await asyncio.gather(*(fetch_recruiter(v) for v in all_vacancies))
 
         all_applicants_data = []
         semaphore = asyncio.Semaphore(5)
-
         async def process_vacancy(vacancy):
-            vac_applicants = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/applicants/search",
-                                                        params={"vacancy": vacancy["id"]})
+            vac_applicants = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/applicants/search", params={"vacancy": vacancy["id"]})
             tasks = []
             for app in vac_applicants:
                 async def sem_task(a=app, v=vacancy):
                     async with semaphore:
                         rec_id = vacancy_recruiters.get(v["id"])
-                        return await _process_applicant(api_client, account_id, a, v, statuses_map, rejections_map,
-                                                        rec_id)
-
+                        return await _process_applicant(api_client, account_id, a, v, statuses_map, rejections_map, rec_id)
                 tasks.append(sem_task())
             results = await asyncio.gather(*tasks)
             return [r for r in results if r]
@@ -236,8 +222,7 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
             "applicants": all_applicants_data,
             "coworkers": coworkers_map,
             "statuses_order": statuses_order_list,
-            "vacancies": [{"id": v["id"], "name": ("🚩 " if v.get("priority") == 1 else "") + v.get("position", ""),
-                           "state": v.get("state")} for v in all_vacancies]
+            "vacancies": [{"id": v["id"], "name": ("🚩 " if v.get("priority") == 1 else "") + v.get("position", ""), "state": v.get("state")} for v in all_vacancies]
         }
     except Exception as e:
         logging.error(f"Ошибка сбора: {e}")
