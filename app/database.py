@@ -25,6 +25,9 @@ class Applicant(Base):
     current_status = Column(String)
     hf_status = Column(String, nullable=True)
 
+    touched_custom = Column(String, default="")
+    touched_hf = Column(String, default="")
+
     rejection_reason = Column(String, nullable=True)
     offer_date = Column(DateTime, nullable=True)
     hired_date = Column(DateTime, nullable=True)

@@ -7,7 +7,7 @@ from huntflow_api_client import HuntflowAPI
 import traceback
 
 from .token_manager import token_proxy
-from .analytics_engine import _is_allowed_recruiter
+from .analytics_engine import _is_allowed_recruiter, FUNNEL_STAGES_ORDER
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -31,6 +31,7 @@ KNOWN_SOURCES = {
 }
 
 TRASH_STATUSES = ["Отказ", "Резерв", "На паузе", "Уволен"]
+
 
 async def _fetch_all_paginated(api_client: HuntflowAPI, url: str, params: Dict = None) -> List[Dict]:
     all_items = []
@@ -101,7 +102,8 @@ async def _process_applicant(
         "recruiter_id": recruiter_id, "source": "Не указан",
         "created_at": applicant.get("created", datetime.now().isoformat()),
         "current_status": None, "hf_status": None, "rejection_reason": None,
-        "offer_date": None, "hired_date": None, "is_hired": False, "logs": []
+        "offer_date": None, "hired_date": None, "is_hired": False, "logs": [],
+        "touched_custom": "", "touched_hf": ""
     }
 
     try:
@@ -118,6 +120,16 @@ async def _process_applicant(
         status_logs.sort(key=lambda x: x.get("created", ""))
 
         last_real_hf_status = None
+        touched_custom_set = set()
+        touched_hf_set = set()
+
+        current_status_id = applicant.get("status")
+        if current_status_id and current_status_id in statuses_map:
+            curr_hf_name = statuses_map[current_status_id]
+            touched_hf_set.add(curr_hf_name)
+            curr_custom = HUNTFLOW_STATUSES_TO_COLUMNS.get(curr_hf_name)
+            if curr_custom:
+                touched_custom_set.add(curr_custom)
 
         for log in status_logs:
             hf_status_name = statuses_map.get(log.get("status"))
@@ -125,19 +137,35 @@ async def _process_applicant(
             if hf_status_name not in TRASH_STATUSES:
                 last_real_hf_status = hf_status_name
 
-            our_stage_name = HUNTFLOW_STATUSES_TO_COLUMNS.get(hf_status_name)
-            if our_stage_name:
-                log_date = log.get("created")
-                applicant_data["current_status"] = our_stage_name
-                if our_stage_name == "выставлен оффер": applicant_data["offer_date"] = log_date
-                if our_stage_name == "вышел на работу":
-                    applicant_data["hired_date"] = log_date
-                    applicant_data["is_hired"] = True
+            if hf_status_name:
+                touched_hf_set.add(hf_status_name)
+
+                our_stage_name = HUNTFLOW_STATUSES_TO_COLUMNS.get(hf_status_name)
+                if our_stage_name:
+                    touched_custom_set.add(our_stage_name)
+                    log_date = log.get("created")
+
+                    curr_idx = FUNNEL_STAGES_ORDER.index(applicant_data["current_status"]) if applicant_data[
+                                                                                                  "current_status"] in FUNNEL_STAGES_ORDER else -1
+                    new_idx = FUNNEL_STAGES_ORDER.index(our_stage_name) if our_stage_name in FUNNEL_STAGES_ORDER else -1
+
+                    if new_idx >= curr_idx:
+                        applicant_data["current_status"] = our_stage_name
+
+                    if our_stage_name == "выставлен оффер" and not applicant_data["offer_date"]:
+                        applicant_data["offer_date"] = log_date
+
+                    if our_stage_name == "вышел на работу" and not applicant_data["hired_date"]:
+                        applicant_data["hired_date"] = log_date
+                        applicant_data["is_hired"] = True
 
             rej_id = log.get("rejection_reason")
             if rej_id: applicant_data["rejection_reason"] = rejections_map.get(rej_id, f"Неизвестно ({rej_id})")
 
+        applicant_data["touched_custom"] = "|" + "|".join(touched_custom_set) + "|"
+        applicant_data["touched_hf"] = "|" + "|".join(touched_hf_set) + "|"
         applicant_data["hf_status"] = last_real_hf_status
+
         return applicant_data
 
     except Exception as e:
@@ -240,5 +268,5 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
                            "state": v.get("state")} for v in all_vacancies]
         }
     except Exception as e:
-        logging.error(f"Ошибка сбора: {e}")
+        logging.error(f"Ошибка сбора: {e}\n{traceback.format_exc()}")
         return None

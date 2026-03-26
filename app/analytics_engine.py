@@ -55,22 +55,21 @@ class AnalyticsEngine:
             if not order_row.empty: self.statuses_order = json.loads(order_row.iloc[0]['value'])
 
             if not raw_df.empty:
-                # self.df = raw_df[raw_df['recruiter_id'].isin(allowed_ids)].copy()
                 self.df = raw_df.copy()
 
                 date_cols = ['created_at', 'offer_date', 'hired_date']
                 for col in date_cols:
                     if col in self.df.columns:
-                        self.df[col] = pd.to_datetime(self.df[col], errors='coerce').dt.tz_localize(None)
+                        self.df[col] = pd.to_datetime(self.df[col], errors='coerce') + pd.Timedelta(hours=3)
 
                 self.df['stage_index'] = self.df['current_status'].apply(
-                    lambda x: FUNNEL_STAGES_ORDER.index(x) if x in FUNNEL_STAGES_ORDER else -1
+                    lambda x: FUNNEL_STAGES_ORDER.index(x) if x in FUNNEL_STAGES_ORDER else 0
                 )
                 status_to_order = {name: i for i, name in enumerate(self.statuses_order)}
-                self.df['full_stage_index'] = self.df['hf_status'].map(status_to_order).fillna(-1)
+                self.df['full_stage_index'] = self.df['hf_status'].map(status_to_order).fillna(0)
 
         except Exception as e:
-            pass
+            logging.error(f"Ошибка загрузки данных в Pandas: {e}")
 
     def get_filtered_stats(self, start_date: datetime, end_date: datetime,
                            vacancy_filter: List[str] = None, recruiter_filter: List[str] = None,
@@ -99,7 +98,9 @@ class AnalyticsEngine:
         prev_count = total_candidates
 
         for i, stage_name in enumerate(FUNNEL_STAGES_ORDER):
-            count = len(filtered_df[filtered_df['stage_index'] >= i])
+            count = len(
+                filtered_df[filtered_df['touched_custom'].str.contains(f"|{stage_name}|", regex=False, na=False)])
+
             conversion_step = round((count / prev_count) * 100, 1) if prev_count > 0 else 0
             conversion_total = round((count / total_candidates) * 100, 1) if total_candidates > 0 else 0
 
@@ -107,21 +108,22 @@ class AnalyticsEngine:
                 "stage": stage_name, "count": count,
                 "conversion_step": f"{conversion_step}%", "conversion_total": f"{conversion_total}%"
             })
-            prev_count = count
+            prev_count = count if count > 0 else prev_count
 
         full_funnel_data = []
         prev_count_full = total_candidates
+
         for i, stage_name in enumerate(self.statuses_order):
-            count = len(filtered_df[filtered_df['full_stage_index'] >= i])
-            if count == 0 and prev_count_full == 0: continue
+            count = len(filtered_df[filtered_df['touched_hf'].str.contains(f"|{stage_name}|", regex=False, na=False)])
 
             conversion_step = round((count / prev_count_full) * 100, 1) if prev_count_full > 0 else 0
             conversion_total = round((count / total_candidates) * 100, 1) if total_candidates > 0 else 0
+
             full_funnel_data.append({
                 "stage": stage_name, "count": count,
                 "conversion_step": f"{conversion_step}%", "conversion_total": f"{conversion_total}%"
             })
-            prev_count_full = count
+            prev_count_full = count if count > 0 else prev_count_full
 
         rejections_flat = []
         rejections_stacked = {}
@@ -149,10 +151,13 @@ class AnalyticsEngine:
                     "probation": len(group[group['stage_index'] == 6])
                 })
 
-        hired_df = filtered_df[filtered_df['offer_date'].notnull()]
+        hired_df = filtered_df[filtered_df['offer_date'].notnull()].copy()
         avg_time_to_offer = 0
         if not hired_df.empty:
-            avg_time_to_offer = (hired_df['offer_date'] - hired_df['created_at']).dt.days.mean()
+            diff_days = (hired_df['offer_date'] - hired_df['created_at']).dt.total_seconds() / 86400.0
+            diff_days = diff_days[diff_days >= 0]
+            if not diff_days.empty:
+                avg_time_to_offer = diff_days.mean()
 
         return {
             "total_candidates": total_candidates,
@@ -168,7 +173,6 @@ class AnalyticsEngine:
         }
 
     def _empty_response(self):
-        """Возвращает безопасный пустой ответ, чтобы фронт не падал в undefined"""
         return {
             "total_candidates": 0, "active_vacancies": 0,
             "funnel": [], "full_funnel": [], "rejections_flat": [], "rejections_stacked": {},

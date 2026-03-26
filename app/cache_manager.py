@@ -65,6 +65,8 @@ async def update_cached_data() -> None:
                             created_at=_parse_date(a.get('created_at')),
                             current_status=a.get('current_status'),
                             hf_status=a.get('hf_status'),
+                            touched_custom=a.get('touched_custom', ''),
+                            touched_hf=a.get('touched_hf', ''),
                             rejection_reason=a.get('rejection_reason'),
                             offer_date=_parse_date(a.get('offer_date')),
                             hired_date=_parse_date(a.get('hired_date')),
