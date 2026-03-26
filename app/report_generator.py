@@ -27,7 +27,7 @@ KNOWN_SOURCES = {
     "hh": "hh.ru", "headhunter": "hh.ru", "habr": "Хабр Карьера", "хабр": "Хабр Карьера",
     "linkedin": "LinkedIn", "линкедин": "LinkedIn", "telegram": "Telegram", "телеграм": "Telegram",
     "tg": "Telegram", "avito": "Avito", "авито": "Avito", "vk": "ВКонтакте", "вк": "ВКонтакте",
-    "рекомендаци": "Рекомендация", "referral": "Рекомендация", "career": "Карьерный сайт", "site": "Карьерный сайт"
+    "рекомендаци": "Рекомендация", "referral": "Рекомендация", "career": "Карьерный сайт", "site": "Карьерный сайт", "HeadHunter": "HeadHunter"
 }
 
 TRASH_STATUSES = ["Отказ", "Резерв", "На паузе", "Уволен"]
@@ -101,6 +101,7 @@ async def _process_applicant(
         "id": app_id, "vacancy": vac_name, "vacancy_state": vacancy.get("state", "OPEN"),
         "recruiter_id": recruiter_id, "source": "Не указан",
         "created_at": applicant.get("created", datetime.now().isoformat()),
+        "last_activity_at": None,
         "current_status": None, "hf_status": None, "rejection_reason": None,
         "offer_date": None, "hired_date": None, "is_hired": False, "logs": [],
         "touched_custom": "", "touched_hf": ""
@@ -113,6 +114,9 @@ async def _process_applicant(
         if all_logs:
             sorted_all_logs = sorted(all_logs, key=lambda x: x.get("created", ""))
             applicant_data["created_at"] = sorted_all_logs[0].get("created", applicant_data["created_at"])
+            applicant_data["last_activity_at"] = sorted_all_logs[-1].get("created", applicant_data["created_at"])
+        else:
+            applicant_data["last_activity_at"] = applicant_data["created_at"]
 
         applicant_data["source"] = _extract_source(applicant, all_logs)
 
@@ -145,8 +149,7 @@ async def _process_applicant(
                     touched_custom_set.add(our_stage_name)
                     log_date = log.get("created")
 
-                    curr_idx = FUNNEL_STAGES_ORDER.index(applicant_data["current_status"]) if applicant_data[
-                                                                                                  "current_status"] in FUNNEL_STAGES_ORDER else -1
+                    curr_idx = FUNNEL_STAGES_ORDER.index(applicant_data["current_status"]) if applicant_data["current_status"] in FUNNEL_STAGES_ORDER else -1
                     new_idx = FUNNEL_STAGES_ORDER.index(our_stage_name) if our_stage_name in FUNNEL_STAGES_ORDER else -1
 
                     if new_idx >= curr_idx:
@@ -247,8 +250,7 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
                 async def sem_task(a=app, v=vacancy):
                     async with semaphore:
                         rec_id = vacancy_recruiters.get(v["id"])
-                        return await _process_applicant(api_client, account_id, a, v, statuses_map, rejections_map,
-                                                        rec_id)
+                        return await _process_applicant(api_client, account_id, a, v, statuses_map, rejections_map, rec_id)
 
                 tasks.append(sem_task())
             results = await asyncio.gather(*tasks)

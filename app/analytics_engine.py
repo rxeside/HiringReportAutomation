@@ -57,10 +57,12 @@ class AnalyticsEngine:
             if not raw_df.empty:
                 self.df = raw_df.copy()
 
-                date_cols = ['created_at', 'offer_date', 'hired_date']
+                date_cols = ['created_at', 'last_activity_at', 'offer_date', 'hired_date']
                 for col in date_cols:
                     if col in self.df.columns:
                         self.df[col] = pd.to_datetime(self.df[col], errors='coerce') + pd.Timedelta(hours=3)
+                        if col == 'last_activity_at':
+                            self.df['last_activity_at'] = self.df['last_activity_at'].fillna(self.df['created_at'])
 
                 self.df['stage_index'] = self.df['current_status'].apply(
                     lambda x: FUNNEL_STAGES_ORDER.index(x) if x in FUNNEL_STAGES_ORDER else 0
@@ -80,7 +82,7 @@ class AnalyticsEngine:
         start = start_date.replace(tzinfo=None)
         end = end_date.replace(tzinfo=None)
 
-        mask = (self.df['created_at'] >= start) & (self.df['created_at'] <= end)
+        mask = (self.df['created_at'] <= end) & (self.df['last_activity_at'] >= start)
         filtered_df = self.df[mask].copy()
 
         if vacancy_filter: filtered_df = filtered_df[filtered_df['vacancy'].isin(vacancy_filter)]

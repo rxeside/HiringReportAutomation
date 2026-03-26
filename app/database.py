@@ -20,7 +20,9 @@ class Applicant(Base):
     vacancy_state = Column(String)
     recruiter_id = Column(Integer)
     source = Column(String)
+
     created_at = Column(DateTime)
+    last_activity_at = Column(DateTime, nullable=True)
 
     current_status = Column(String)
     hf_status = Column(String, nullable=True)
