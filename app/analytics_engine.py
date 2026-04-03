@@ -68,7 +68,6 @@ class AnalyticsEngine:
                     lambda x: FUNNEL_STAGES_ORDER.index(x) if x in FUNNEL_STAGES_ORDER else -1
                 )
 
-                # Создаем датафрейм Событий (Логов)
                 events = []
                 for _, row in self.df.iterrows():
                     try:
@@ -99,16 +98,13 @@ class AnalyticsEngine:
                            state_filter: List[str] = None):
         if self.events_df.empty: return self._empty_response()
 
-        # 1. Подготовка дат
         start = start_date.replace(tzinfo=None)
         end = end_date.replace(tzinfo=None)
 
         all_events = self.events_df.copy()
         all_events['date'] = all_events['date'].dt.tz_localize(None)
-        # Сортировка важна для корректной работы drop_duplicates с keep='first'
         all_events = all_events.sort_values(by=['applicant_id', 'date'])
 
-        # 2. Применение глобальных фильтров
         if vacancy_filter:
             all_events = all_events[all_events['vacancy'].isin(vacancy_filter)]
 
@@ -121,7 +117,6 @@ class AnalyticsEngine:
 
         if all_events.empty: return self._empty_response()
 
-        # 3. Стратегия "Первое достижение этапа" (за всю историю)
         unique_custom_all = all_events.dropna(subset=['custom_stage']).drop_duplicates(
             subset=['applicant_id', 'custom_stage'], keep='first'
         )
@@ -130,11 +125,9 @@ class AnalyticsEngine:
             subset=['applicant_id', 'hf_stage'], keep='first'
         )
 
-        # 4. Фильтрация по периоду (кто впервые попал на этап в эти даты)
         unique_custom = unique_custom_all[(unique_custom_all['date'] >= start) & (unique_custom_all['date'] <= end)]
         unique_hf = unique_hf_all[(unique_hf_all['date'] >= start) & (unique_hf_all['date'] <= end)]
 
-        # 5. Расчет основной воронки
         first_stage_name = FUNNEL_STAGES_ORDER[0]
         total_candidates = len(unique_custom[unique_custom['custom_stage'] == first_stage_name])
 
@@ -150,7 +143,6 @@ class AnalyticsEngine:
             })
             if count > 0: prev_count = count
 
-        # 6. Расчет полной воронки
         full_funnel_data = []
         hf_first_stage = self.statuses_order[0] if self.statuses_order else None
         hf_total = len(unique_hf[unique_hf['hf_stage'] == hf_first_stage]) if hf_first_stage else 0
@@ -165,7 +157,6 @@ class AnalyticsEngine:
             })
             if count > 0: prev_hf = count
 
-        # 7. Дополнительная статистика
         active_ids = unique_custom['applicant_id'].unique()
         filtered_df = self.df[self.df['applicant_id'].isin(active_ids)].copy()
 
