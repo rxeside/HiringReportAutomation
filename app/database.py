@@ -3,7 +3,6 @@ from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 DATABASE_URL = "sqlite:///cache/huntflow.db"
-
 os.makedirs("cache", exist_ok=True)
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
@@ -15,6 +14,7 @@ class Applicant(Base):
     __tablename__ = "applicants"
     id = Column(Integer, primary_key=True, autoincrement=True)
     applicant_id = Column(Integer, index=True)
+    name = Column(String)
 
     vacancy = Column(String)
     vacancy_state = Column(String)
@@ -27,8 +27,7 @@ class Applicant(Base):
     current_status = Column(String)
     hf_status = Column(String, nullable=True)
 
-    touched_custom = Column(String, default="")
-    touched_hf = Column(String, default="")
+    stage_history = Column(String, default="[]")
 
     rejection_reason = Column(String, nullable=True)
     offer_date = Column(DateTime, nullable=True)

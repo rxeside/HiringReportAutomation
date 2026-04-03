@@ -30,22 +30,18 @@ def _parse_date(date_str):
 async def update_cached_data() -> None:
     global _is_updating
     if _update_lock.locked():
-        logging.info("Обновление уже идет. Пропуск.")
         return
 
     async with _update_lock:
         _is_updating = True
-        logging.info(">>> Начало загрузки данных в базу SQLite...")
         try:
             fetched_data = await report_generator.generate_raw_analytics_data()
-
             if fetched_data:
                 try:
                     with open("cache/backup_raw_data.json", "w", encoding="utf-8") as f:
                         json.dump(fetched_data, f, ensure_ascii=False)
-                    logging.info("Резервный бэкап данных сохранен.")
-                except Exception as e:
-                    logging.warning(f"Не удалось сохранить бэкап: {e}")
+                except Exception:
+                    pass
 
                 db: Session = SessionLocal()
                 try:
@@ -58,6 +54,7 @@ async def update_cached_data() -> None:
                     for a in fetched_data['applicants']:
                         db_applicants.append(Applicant(
                             applicant_id=a['id'],
+                            name=a.get('name', 'Без имени'),
                             vacancy=a['vacancy'],
                             vacancy_state=a['vacancy_state'],
                             recruiter_id=a['recruiter_id'],
@@ -66,8 +63,7 @@ async def update_cached_data() -> None:
                             last_activity_at=_parse_date(a.get('last_activity_at')),
                             current_status=a.get('current_status'),
                             hf_status=a.get('hf_status'),
-                            touched_custom=a.get('touched_custom', ''),
-                            touched_hf=a.get('touched_hf', ''),
+                            stage_history=a.get('stage_history', '[]'),
                             rejection_reason=a.get('rejection_reason'),
                             offer_date=_parse_date(a.get('offer_date')),
                             hired_date=_parse_date(a.get('hired_date')),
@@ -90,7 +86,6 @@ async def update_cached_data() -> None:
                         state.value = now_str
 
                     db.commit()
-                    logging.info("База данных SQLite успешно обновлена.")
                 except Exception as db_e:
                     db.rollback()
                     raise db_e
@@ -98,13 +93,10 @@ async def update_cached_data() -> None:
                     db.close()
 
                 engine.load_data()
-            else:
-                logging.warning("Сборщик вернул None, БД не обновлена.")
         except Exception as e:
-            logging.error(f"Ошибка обновления: {e}\n{traceback.format_exc()}")
+            logging.error(f"Ошибка обновления: {e}")
         finally:
             _is_updating = False
-            logging.info("<<< Процесс обновления завершен.")
 
 def get_update_status() -> bool:
     return _is_updating

@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+import json
+from datetime import datetime
 from typing import Dict, Any, List, Optional
 import httpx
 from huntflow_api_client import HuntflowAPI
@@ -12,14 +13,10 @@ from .analytics_engine import _is_allowed_recruiter, FUNNEL_STAGES_ORDER
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 HUNTFLOW_STATUSES_TO_COLUMNS = {
-    "Коннект": "коннект",
-    "Интервью с HR": "интервью с HR",
-    "Интервью с заказчиком": "интервью с заказчиком",
-    "Финальное интервью": "финальное интервью",
-    "Финальное интервью с Юрой": "финальное интервью",
-    "Выставлен оффер": "выставлен оффер",
-    "Предложение принято": "выставлен оффер",
-    "Вышел на работу": "вышел на работу",
+    "Коннект": "коннект", "Интервью с HR": "интервью с HR",
+    "Интервью с заказчиком": "интервью с заказчиком", "Финальное интервью": "финальное интервью",
+    "Финальное интервью с Юрой": "финальное интервью", "Выставлен оффер": "выставлен оффер",
+    "Предложение принято": "выставлен оффер", "Вышел на работу": "вышел на работу",
     "Исп. срок пройден": "испытательный срок пройден",
 }
 
@@ -27,18 +24,15 @@ KNOWN_SOURCES = {
     "hh": "hh.ru", "headhunter": "hh.ru", "habr": "Хабр Карьера", "хабр": "Хабр Карьера",
     "linkedin": "LinkedIn", "линкедин": "LinkedIn", "telegram": "Telegram", "телеграм": "Telegram",
     "tg": "Telegram", "avito": "Avito", "авито": "Avito", "vk": "ВКонтакте", "вк": "ВКонтакте",
-    "рекомендаци": "Рекомендация", "referral": "Рекомендация", "career": "Карьерный сайт", "site": "Карьерный сайт", "HeadHunter": "HeadHunter"
+    "рекомендаци": "Рекомендация", "referral": "Рекомендация", "career": "Карьерный сайт", "site": "Карьерный сайт",
+    "HeadHunter": "HeadHunter"
 }
-
 TRASH_STATUSES = ["Отказ", "Резерв", "На паузе", "Уволен"]
 
 
 async def _fetch_all_paginated(api_client: HuntflowAPI, url: str, params: Dict = None) -> List[Dict]:
-    all_items = []
-    current_page = 1
-    total_pages = 1
+    all_items, current_page, total_pages = [], 1, 1
     base_params = params.copy() if params else {}
-
     while current_page <= total_pages:
         base_params["page"] = current_page
         base_params["count"] = 100
@@ -50,8 +44,7 @@ async def _fetch_all_paginated(api_client: HuntflowAPI, url: str, params: Dict =
             all_items.extend(items)
             if current_page == 1: total_pages = data.get("total_pages", 1)
             current_page += 1
-        except Exception as e:
-            logging.error(f"Ошибка пагинации: {e}")
+        except Exception:
             break
     return all_items
 
@@ -62,49 +55,52 @@ def _extract_source(applicant: Dict, logs: List[Dict]) -> str:
         return source_field.get("name")
     elif isinstance(source_field, str) and source_field.strip():
         return source_field
-
     tags = applicant.get("tags") or []
     for tag in tags:
         tag_name = tag.get("name", "").lower()
         for key, real_name in KNOWN_SOURCES.items():
             if key in tag_name: return real_name
         if "source" in tag_name or "источник" in tag_name: return tag.get("name")
-
     for log in logs:
         if log.get("type") == "COMMENT":
-            text = log.get("comment", "").lower()
-            if "добавлен" in text or "отклик" in text or "найден" in text:
-                for key, real_name in KNOWN_SOURCES.items():
-                    if key in text: return real_name
-
+            comment_text = log.get("comment")
+            # БЕЗОПАСНАЯ ПРОВЕРКА НА NULL
+            if comment_text:
+                text = comment_text.lower()
+                if "добавлен" in text or "отклик" in text or "найден" in text:
+                    for key, real_name in KNOWN_SOURCES.items():
+                        if key in text: return real_name
     externals = applicant.get("externals") or []
     for ext in externals:
         url = ext.get("url", "").lower()
         for key, real_name in KNOWN_SOURCES.items():
             if key in url: return real_name
-
     return "Не указан"
 
 
 async def _process_applicant(
         api_client: HuntflowAPI, account_id: int, applicant: Dict, vacancy: Dict,
-        statuses_map: Dict, rejections_map: Dict, recruiter_id: int
+        statuses_map: Dict, rejections_map: Dict, recruiter_id: int, first_hf_stage: str
 ) -> Optional[Dict]:
     app_id = applicant["id"]
     vac_id = vacancy["id"]
+    vac_name = "🚩 " + vacancy.get("position", "Без названия") if vacancy.get("priority") == 1 else vacancy.get(
+        "position", "Без названия")
 
-    vac_name = vacancy.get("position", "Без названия")
-    if vacancy.get("priority") == 1:
-        vac_name = "🚩 " + vac_name
+    first_name = applicant.get("first_name", "") or ""
+    last_name = applicant.get("last_name", "") or ""
+    full_name = f"{first_name} {last_name}".strip()
 
     applicant_data = {
-        "id": app_id, "vacancy": vac_name, "vacancy_state": vacancy.get("state", "OPEN"),
+        "id": app_id,
+        "name": full_name,
+        "vacancy": vac_name, "vacancy_state": vacancy.get("state", "OPEN"),
         "recruiter_id": recruiter_id, "source": "Не указан",
         "created_at": applicant.get("created", datetime.now().isoformat()),
-        "last_activity_at": None,
+        "last_activity_at": applicant.get("created", datetime.now().isoformat()),
         "current_status": None, "hf_status": None, "rejection_reason": None,
         "offer_date": None, "hired_date": None, "is_hired": False, "logs": [],
-        "touched_custom": "", "touched_hf": ""
+        "stage_history": "[]"
     }
 
     try:
@@ -115,49 +111,36 @@ async def _process_applicant(
             sorted_all_logs = sorted(all_logs, key=lambda x: x.get("created", ""))
             applicant_data["created_at"] = sorted_all_logs[0].get("created", applicant_data["created_at"])
             applicant_data["last_activity_at"] = sorted_all_logs[-1].get("created", applicant_data["created_at"])
-        else:
-            applicant_data["last_activity_at"] = applicant_data["created_at"]
 
         applicant_data["source"] = _extract_source(applicant, all_logs)
+
+        stage_history = []
+        last_real_hf_status = None
 
         status_logs = [log for log in all_logs if log.get("type") == "STATUS"]
         status_logs.sort(key=lambda x: x.get("created", ""))
 
-        last_real_hf_status = None
-        touched_custom_set = set()
-        touched_hf_set = set()
-
-        current_status_id = applicant.get("status")
-        if current_status_id and current_status_id in statuses_map:
-            curr_hf_name = statuses_map[current_status_id]
-            touched_hf_set.add(curr_hf_name)
-            curr_custom = HUNTFLOW_STATUSES_TO_COLUMNS.get(curr_hf_name)
-            if curr_custom:
-                touched_custom_set.add(curr_custom)
-
         for log in status_logs:
             hf_status_name = statuses_map.get(log.get("status"))
-
-            if hf_status_name not in TRASH_STATUSES:
-                last_real_hf_status = hf_status_name
+            if hf_status_name not in TRASH_STATUSES: last_real_hf_status = hf_status_name
 
             if hf_status_name:
-                touched_hf_set.add(hf_status_name)
-
                 our_stage_name = HUNTFLOW_STATUSES_TO_COLUMNS.get(hf_status_name)
+                log_date = log.get("created")
+
+                stage_history.append({
+                    "hf_stage": hf_status_name,
+                    "custom_stage": our_stage_name,
+                    "date": log_date
+                })
+
                 if our_stage_name:
-                    touched_custom_set.add(our_stage_name)
-                    log_date = log.get("created")
-
-                    curr_idx = FUNNEL_STAGES_ORDER.index(applicant_data["current_status"]) if applicant_data["current_status"] in FUNNEL_STAGES_ORDER else -1
+                    curr_idx = FUNNEL_STAGES_ORDER.index(applicant_data["current_status"]) if applicant_data[
+                                                                                                  "current_status"] in FUNNEL_STAGES_ORDER else -1
                     new_idx = FUNNEL_STAGES_ORDER.index(our_stage_name) if our_stage_name in FUNNEL_STAGES_ORDER else -1
-
-                    if new_idx >= curr_idx:
-                        applicant_data["current_status"] = our_stage_name
-
-                    if our_stage_name == "выставлен оффер" and not applicant_data["offer_date"]:
-                        applicant_data["offer_date"] = log_date
-
+                    if new_idx >= curr_idx: applicant_data["current_status"] = our_stage_name
+                    if our_stage_name == "выставлен оффер" and not applicant_data["offer_date"]: applicant_data[
+                        "offer_date"] = log_date
                     if our_stage_name == "вышел на работу" and not applicant_data["hired_date"]:
                         applicant_data["hired_date"] = log_date
                         applicant_data["is_hired"] = True
@@ -165,14 +148,13 @@ async def _process_applicant(
             rej_id = log.get("rejection_reason")
             if rej_id: applicant_data["rejection_reason"] = rejections_map.get(rej_id, f"Неизвестно ({rej_id})")
 
-        applicant_data["touched_custom"] = "|" + "|".join(touched_custom_set) + "|"
-        applicant_data["touched_hf"] = "|" + "|".join(touched_hf_set) + "|"
+        applicant_data["stage_history"] = json.dumps(stage_history, ensure_ascii=False)
         applicant_data["hf_status"] = last_real_hf_status
 
         return applicant_data
 
     except Exception as e:
-        logging.warning(f"Ошибка при обработке кандидата {app_id}: {e}")
+        logging.error(f"Ошибка парсинга кандидата {app_id}: {e}\n{traceback.format_exc()}")
         return None
 
 
@@ -181,7 +163,6 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
     api_client = HuntflowAPI("https://api.huntflow.ru", token_proxy=token_proxy, auto_refresh_tokens=False)
 
     try:
-        logging.info("--- СТАРТ СБОРА ДАННЫХ ИЗ HUNTFLOW ---")
         try:
             accounts_response = await api_client.request("GET", "/accounts")
         except httpx.HTTPStatusError as e:
@@ -195,6 +176,7 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
 
         account_id = accounts_response.json()["items"][0]["id"]
 
+        # 2. Загружаем справочники
         coworkers_raw = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/coworkers")
         coworkers_map = {item["id"]: item["name"] for item in coworkers_raw}
 
@@ -213,7 +195,7 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
                                                    params={"state": ["OPEN", "CLOSED", "HOLD"]})
 
         vacancy_recruiters = {}
-        sem_cws = asyncio.Semaphore(10)
+        sem_cws = asyncio.Semaphore(5)
 
         async def fetch_recruiter(vac):
             async with sem_cws:
@@ -226,7 +208,6 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
                             if _is_allowed_recruiter(cw["name"]):
                                 assigned_id = cw["id"]
                                 break
-
                         if not assigned_id:
                             for cw in cws:
                                 if cw.get("type") == "manager":
@@ -237,8 +218,18 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
                 except Exception:
                     pass
 
+        logging.info(f"Определение ответственных для {len(all_vacancies)} вакансий...")
         await asyncio.gather(*(fetch_recruiter(v) for v in all_vacancies))
 
+        filtered_vacancies = [
+            v for v in all_vacancies
+            if
+            v["id"] in vacancy_recruiters and _is_allowed_recruiter(coworkers_map.get(vacancy_recruiters[v["id"]], ""))
+        ]
+
+        logging.info(f"Итого к обработке: {len(filtered_vacancies)} вакансий разрешенных рекрутеров.")
+
+        first_hf_stage = statuses_order_list[0] if statuses_order_list else "New"
         all_applicants_data = []
         semaphore = asyncio.Semaphore(5)
 
@@ -249,26 +240,30 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
             for app in vac_applicants:
                 async def sem_task(a=app, v=vacancy):
                     async with semaphore:
+                        await asyncio.sleep(0.05)
                         rec_id = vacancy_recruiters.get(v["id"])
-                        return await _process_applicant(api_client, account_id, a, v, statuses_map, rejections_map, rec_id)
+                        return await _process_applicant(api_client, account_id, a, v, statuses_map, rejections_map,
+                                                        rec_id, first_hf_stage)
 
                 tasks.append(sem_task())
+
             results = await asyncio.gather(*tasks)
             return [r for r in results if r]
 
-        for i, vacancy in enumerate(all_vacancies, 1):
-            logging.info(f"Обработка вакансии {i}/{len(all_vacancies)}: {vacancy.get('position')}...")
+        for i, vacancy in enumerate(filtered_vacancies, 1):
+            logging.info(f"[{i}/{len(filtered_vacancies)}] Сбор: {vacancy.get('position')}...")
             vac_results = await process_vacancy(vacancy)
             all_applicants_data.extend(vac_results)
 
-        logging.info("--- СБОР ЗАВЕРШЕН ---")
+        logging.info(f"--- СБОР ЗАВЕРШЕН: {len(all_applicants_data)} кандидатов ---")
         return {
             "applicants": all_applicants_data,
             "coworkers": coworkers_map,
             "statuses_order": statuses_order_list,
-            "vacancies": [{"id": v["id"], "name": ("🚩 " if v.get("priority") == 1 else "") + v.get("position", ""),
-                           "state": v.get("state")} for v in all_vacancies]
+            "vacancies": [{"id": v["id"], "name": v.get("position", ""), "state": v.get("state")} for v in
+                          filtered_vacancies]
         }
     except Exception as e:
-        logging.error(f"Ошибка сбора: {e}\n{traceback.format_exc()}")
+        logging.error(f"Глобальная ошибка сбора: {e}")
+        logging.error(traceback.format_exc())
         return None
