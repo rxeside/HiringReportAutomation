@@ -79,7 +79,7 @@ class AnalyticsEngine:
                             "applicant_id": row["applicant_id"],
                             "vacancy": row["vacancy"],
                             "vacancy_state": row["vacancy_state"],
-                            "recruiter_id": row["recruiter_id"],
+                            "recruiter_id": ev.get("recruiter_id") or row["recruiter_id"],
                             "source": row["source"],
                             "hf_stage": ev.get("hf_stage"),
                             "custom_stage": ev.get("custom_stage"),

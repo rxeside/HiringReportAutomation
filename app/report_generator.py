@@ -127,11 +127,13 @@ async def _process_applicant(
             if hf_status_name:
                 our_stage_name = HUNTFLOW_STATUSES_TO_COLUMNS.get(hf_status_name)
                 log_date = log.get("created")
+                log_user_id = log.get("created_by")
 
                 stage_history.append({
                     "hf_stage": hf_status_name,
                     "custom_stage": our_stage_name,
-                    "date": log_date
+                    "date": log_date,
+                    "recruiter_id": log_user_id
                 })
 
                 if our_stage_name:
@@ -221,11 +223,7 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
         logging.info(f"Определение ответственных для {len(all_vacancies)} вакансий...")
         await asyncio.gather(*(fetch_recruiter(v) for v in all_vacancies))
 
-        filtered_vacancies = [
-            v for v in all_vacancies
-            if
-            v["id"] in vacancy_recruiters and _is_allowed_recruiter(coworkers_map.get(vacancy_recruiters[v["id"]], ""))
-        ]
+        filtered_vacancies = all_vacancies
 
         logging.info(f"Итого к обработке: {len(filtered_vacancies)} вакансий разрешенных рекрутеров.")
 
