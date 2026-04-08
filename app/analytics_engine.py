@@ -70,16 +70,11 @@ class AnalyticsEngine:
 
                 events = []
                 for _, row in self.df.iterrows():
-                    if not _is_allowed_recruiter(full_coworkers.get(row['recruiter_id'], "")):
-                        continue
                     try:
                         history = json.loads(row['stage_history']) if row['stage_history'] else []
                     except:
                         history = []
                     for ev in history:
-                        log_rec_id = ev.get("recruiter_id") or row["recruiter_id"]
-                        if not _is_allowed_recruiter(full_coworkers.get(log_rec_id, "")):
-                            continue
                         events.append({
                             "applicant_id": row["applicant_id"],
                             "vacancy": row["vacancy"],
