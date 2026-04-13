@@ -108,9 +108,14 @@ class AnalyticsEngine:
         if vacancy_filter:
             all_events = all_events[all_events['vacancy'].isin(vacancy_filter)]
 
+        all_events['rec_id_str'] = all_events['recruiter_id'].fillna(0).astype(int).astype(str)
+
         if recruiter_filter:
-            all_events['rec_id_str'] = all_events['recruiter_id'].fillna(0).astype(int).astype(str)
-            all_events = all_events[all_events['rec_id_str'].isin([str(x) for x in recruiter_filter])]
+            target_ids = [str(x) for x in recruiter_filter]
+        else:
+            target_ids = [str(c_id) for c_id in self.coworkers.keys()]
+
+        all_events = all_events[all_events['rec_id_str'].isin(target_ids)]
 
         if state_filter:
             all_events = all_events[all_events['vacancy_state'].isin(state_filter)]

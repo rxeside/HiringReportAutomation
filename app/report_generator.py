@@ -49,32 +49,35 @@ async def _fetch_all_paginated(api_client: HuntflowAPI, url: str, params: Dict =
     return all_items
 
 
-def _extract_source(applicant: Dict, logs: List[Dict]) -> str:
+def _extract_source(applicant: Dict, logs: List[Dict], sources_map: Dict[int, str]) -> str:
+    external_list = applicant.get("external") or []
+    for ext in external_list:
+        acc_source_id = ext.get("account_source")
+        if acc_source_id and acc_source_id in sources_map:
+            return sources_map[acc_source_id]
+
     source_field = applicant.get("source")
     if isinstance(source_field, dict) and source_field.get("name"):
         return source_field.get("name")
     elif isinstance(source_field, str) and source_field.strip():
         return source_field
+
     tags = applicant.get("tags") or []
     for tag in tags:
         tag_name = tag.get("name", "").lower()
         for key, real_name in KNOWN_SOURCES.items():
             if key in tag_name: return real_name
         if "source" in tag_name or "источник" in tag_name: return tag.get("name")
+
     for log in logs:
         if log.get("type") == "COMMENT":
             comment_text = log.get("comment")
-            # БЕЗОПАСНАЯ ПРОВЕРКА НА NULL
             if comment_text:
                 text = comment_text.lower()
                 if "добавлен" in text or "отклик" in text or "найден" in text:
                     for key, real_name in KNOWN_SOURCES.items():
                         if key in text: return real_name
-    externals = applicant.get("externals") or []
-    for ext in externals:
-        url = ext.get("url", "").lower()
-        for key, real_name in KNOWN_SOURCES.items():
-            if key in url: return real_name
+
     return "Не указан"
 
 def _match_recruiter_by_name(log_name: str, coworkers_map: Dict[int, str], default_id: int) -> int:
@@ -105,7 +108,7 @@ def _match_recruiter_by_name(log_name: str, coworkers_map: Dict[int, str], defau
 async def _process_applicant(
         api_client: HuntflowAPI, account_id: int, applicant: Dict, vacancy: Dict,
         statuses_map: Dict, rejections_map: Dict, recruiter_id: int, first_hf_stage: str,
-        coworkers_map: Dict[int, str]
+        coworkers_map: Dict[int, str], sources_map: Dict[int, str]
 ) -> Optional[Dict]:
     app_id = applicant["id"]
     vac_id = vacancy["id"]
@@ -137,7 +140,7 @@ async def _process_applicant(
             applicant_data["created_at"] = sorted_all_logs[0].get("created", applicant_data["created_at"])
             applicant_data["last_activity_at"] = sorted_all_logs[-1].get("created", applicant_data["created_at"])
 
-        applicant_data["source"] = _extract_source(applicant, all_logs)
+        applicant_data["source"] = _extract_source(applicant, all_logs, sources_map)
 
         stage_history = []
         last_real_hf_status = None
@@ -206,9 +209,11 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
 
         account_id = accounts_response.json()["items"][0]["id"]
 
-        # 2. Загружаем справочники
         coworkers_raw = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/coworkers")
         coworkers_map = {item["id"]: item["name"] for item in coworkers_raw}
+
+        sources_raw = await _fetch_all_paginated(api_client, f"/v2/accounts/{account_id}/applicants/sources")
+        sources_map = {item["id"]: item["name"] for item in sources_raw}
 
         statuses_resp = await api_client.request("GET", f"/accounts/{account_id}/vacancies/statuses")
         raw_statuses = statuses_resp.json().get("items", [])
@@ -272,7 +277,8 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
                             api_client, account_id, a, v,
                             statuses_map, rejections_map,
                             rec_id, first_hf_stage,
-                            coworkers_map
+                            coworkers_map,
+                            sources_map
                         )
 
                 tasks.append(sem_task())
