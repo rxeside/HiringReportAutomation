@@ -3,9 +3,9 @@ services:
     build: .
     ports:
       - "8000:8000"
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
+#    dns:
+#      - 8.8.8.8
+#      - 1.1.1.1
     volumes:
       - ./app:/app/app
       - ./templates:/app/templates
