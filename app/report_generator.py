@@ -271,7 +271,7 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
             for app in vac_applicants:
                 async def sem_task(a=app, v=vacancy):
                     async with semaphore:
-                        await asyncio.sleep(0.05)
+                        await asyncio.sleep(0.01)
                         rec_id = vacancy_recruiters.get(v["id"])
                         return await _process_applicant(
                             api_client, account_id, a, v,
