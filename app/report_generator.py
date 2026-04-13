@@ -227,7 +227,7 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
         rejections_map = {r["id"]: r["name"] for r in rej_resp.json().get("items", [])}
 
         all_vacancies = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/vacancies",
-                                                   params={"state": ["OPEN", "CLOSED", "HOLD"]})
+                                                   params={})
 
         vacancy_recruiters = {}
         sem_cws = asyncio.Semaphore(5)
