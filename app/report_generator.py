@@ -77,10 +77,35 @@ def _extract_source(applicant: Dict, logs: List[Dict]) -> str:
             if key in url: return real_name
     return "Не указан"
 
+def _match_recruiter_by_name(log_name: str, coworkers_map: Dict[int, str], default_id: int) -> int:
+    if not log_name:
+        return default_id
+
+    log_name_lower = log_name.strip().lower()
+
+    for cw_id, cw_name in coworkers_map.items():
+        if cw_name.strip().lower() == log_name_lower:
+            return cw_id
+
+    log_parts = set(log_name_lower.split())
+    best_match_id = default_id
+    max_overlap = 0
+
+    for cw_id, cw_name in coworkers_map.items():
+        cw_parts = set(cw_name.strip().lower().split())
+        overlap = len(log_parts.intersection(cw_parts))
+
+        if overlap > max_overlap and overlap >= 1:
+            max_overlap = overlap
+            best_match_id = cw_id
+
+    return best_match_id
+
 
 async def _process_applicant(
         api_client: HuntflowAPI, account_id: int, applicant: Dict, vacancy: Dict,
-        statuses_map: Dict, rejections_map: Dict, recruiter_id: int, first_hf_stage: str
+        statuses_map: Dict, rejections_map: Dict, recruiter_id: int, first_hf_stage: str,
+        coworkers_map: Dict[int, str]
 ) -> Optional[Dict]:
     app_id = applicant["id"]
     vac_id = vacancy["id"]
@@ -127,7 +152,10 @@ async def _process_applicant(
             if hf_status_name:
                 our_stage_name = HUNTFLOW_STATUSES_TO_COLUMNS.get(hf_status_name)
                 log_date = log.get("created")
-                log_user_id = log.get("created_by")
+
+                account_info = log.get("account_info", {})
+                log_name = account_info.get("name") if account_info else None
+                log_user_id = _match_recruiter_by_name(log_name, coworkers_map, recruiter_id)
 
                 stage_history.append({
                     "hf_stage": hf_status_name,
@@ -240,8 +268,12 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
                     async with semaphore:
                         await asyncio.sleep(0.05)
                         rec_id = vacancy_recruiters.get(v["id"])
-                        return await _process_applicant(api_client, account_id, a, v, statuses_map, rejections_map,
-                                                        rec_id, first_hf_stage)
+                        return await _process_applicant(
+                            api_client, account_id, a, v,
+                            statuses_map, rejections_map,
+                            rec_id, first_hf_stage,
+                            coworkers_map
+                        )
 
                 tasks.append(sem_task())
 
