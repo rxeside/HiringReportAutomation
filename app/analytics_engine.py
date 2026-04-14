@@ -103,35 +103,33 @@ class AnalyticsEngine:
 
         all_events = self.events_df.copy()
         all_events['date'] = all_events['date'].dt.tz_localize(None)
+
         all_events = all_events.sort_values(by=['applicant_id', 'date'])
 
         if vacancy_filter:
             all_events = all_events[all_events['vacancy'].isin(vacancy_filter)]
 
         all_events['rec_id_str'] = all_events['recruiter_id'].fillna(0).astype(int).astype(str)
-
         if recruiter_filter:
             target_ids = [str(x) for x in recruiter_filter]
         else:
             target_ids = [str(c_id) for c_id in self.coworkers.keys()]
-
         all_events = all_events[all_events['rec_id_str'].isin(target_ids)]
 
         if state_filter:
             all_events = all_events[all_events['vacancy_state'].isin(state_filter)]
 
-        if all_events.empty: return self._empty_response()
+        events_in_period = all_events[(all_events['date'] >= start) & (all_events['date'] <= end)].copy()
 
-        unique_custom_all = all_events.dropna(subset=['custom_stage']).drop_duplicates(
+        if events_in_period.empty: return self._empty_response()
+
+        unique_custom = events_in_period.dropna(subset=['custom_stage']).drop_duplicates(
             subset=['applicant_id', 'custom_stage'], keep='first'
         )
 
-        unique_hf_all = all_events.dropna(subset=['hf_stage']).drop_duplicates(
+        unique_hf = events_in_period.dropna(subset=['hf_stage']).drop_duplicates(
             subset=['applicant_id', 'hf_stage'], keep='first'
         )
-
-        unique_custom = unique_custom_all[(unique_custom_all['date'] >= start) & (unique_custom_all['date'] <= end)]
-        unique_hf = unique_hf_all[(unique_hf_all['date'] >= start) & (unique_hf_all['date'] <= end)]
 
         first_stage_name = FUNNEL_STAGES_ORDER[0]
         total_candidates = len(unique_custom[unique_custom['custom_stage'] == first_stage_name])
@@ -200,7 +198,7 @@ class AnalyticsEngine:
 
         return {
             "total_candidates": total_candidates,
-            "active_vacancies": int(all_events[all_events['applicant_id'].isin(active_ids)]['vacancy'].nunique()),
+            "active_vacancies": int(events_in_period['vacancy'].nunique()),
             "funnel": funnel_data, "full_funnel": full_funnel_data,
             "rejections_flat": rejections_flat, "rejections_stacked": rejections_stacked,
             "sources": sources_data, "avg_time_to_offer": round(avg_time, 1),
