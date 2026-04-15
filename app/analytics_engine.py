@@ -124,11 +124,11 @@ class AnalyticsEngine:
         if events_in_period.empty: return self._empty_response()
 
         unique_custom = events_in_period.dropna(subset=['custom_stage']).drop_duplicates(
-            subset=['applicant_id', 'custom_stage'], keep='first'
+            subset=['applicant_id', 'vacancy', 'custom_stage'], keep='first'
         )
 
         unique_hf = events_in_period.dropna(subset=['hf_stage']).drop_duplicates(
-            subset=['applicant_id', 'hf_stage'], keep='first'
+            subset=['applicant_id', 'vacancy', 'hf_stage'], keep='first'
         )
 
         first_stage_name = FUNNEL_STAGES_ORDER[0]
@@ -160,8 +160,8 @@ class AnalyticsEngine:
             })
             if count > 0: prev_hf = count
 
-        active_ids = unique_custom['applicant_id'].unique()
-        filtered_df = self.df[self.df['applicant_id'].isin(active_ids)].copy()
+        unique_pairs = unique_custom[['applicant_id', 'vacancy']].drop_duplicates()
+        filtered_df = self.df.merge(unique_pairs, on=['applicant_id', 'vacancy'])
 
         rejections_flat = []
         rejections_stacked = {}
