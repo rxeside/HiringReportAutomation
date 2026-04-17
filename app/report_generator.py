@@ -67,16 +67,13 @@ def _extract_source(applicant: Dict, logs: List[Dict], sources_map: Dict[int, st
         tag_name = tag.get("name", "").lower()
         for key, real_name in KNOWN_SOURCES.items():
             if key in tag_name: return real_name
-        if "source" in tag_name or "источник" in tag_name: return tag.get("name")
 
     for log in logs:
         if log.get("type") == "COMMENT":
             comment_text = log.get("comment")
-            if comment_text:
-                text = comment_text.lower()
-                if "добавлен" in text or "отклик" in text or "найден" in text:
-                    for key, real_name in KNOWN_SOURCES.items():
-                        if key in text: return real_name
+            if comment_text and ("добавлен" in comment_text.lower() or "отклик" in comment_text.lower()):
+                for key, real_name in KNOWN_SOURCES.items():
+                    if key in comment_text.lower(): return real_name
 
     return "Не указан"
 
@@ -114,6 +111,12 @@ async def _process_applicant(
     vac_id = vacancy["id"]
     vac_name = "🚩 " + vacancy.get("position", "Без названия") if vacancy.get("priority") == 1 else vacancy.get(
         "position", "Без названия")
+    try:
+        full_app_resp = await api_client.request("GET", f"/v2/accounts/{account_id}/applicants/{app_id}")
+        full_applicant_data = full_app_resp.json()
+    except Exception as e:
+        logging.warning(f"Не удалось получить полную карточку для {app_id}: {e}")
+        full_applicant_data = applicant
 
     first_name = applicant.get("first_name", "") or ""
     last_name = applicant.get("last_name", "") or ""
@@ -140,7 +143,7 @@ async def _process_applicant(
             applicant_data["created_at"] = sorted_all_logs[0].get("created", applicant_data["created_at"])
             applicant_data["last_activity_at"] = sorted_all_logs[-1].get("created", applicant_data["created_at"])
 
-        applicant_data["source"] = _extract_source(applicant, all_logs, sources_map)
+        applicant_data["source"] = _extract_source(full_applicant_data, all_logs, sources_map)
 
         stage_history = []
         last_real_hf_status = None
