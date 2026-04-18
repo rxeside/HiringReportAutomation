@@ -112,7 +112,7 @@ async def _process_applicant(
 
     full_applicant_data = {}
     try:
-        full_app_resp = await api_client.request("GET", f"/v2/accounts/{account_id}/applicants/{app_id}")
+        full_app_resp = await api_client.request("GET", f"/accounts/{account_id}/applicants/{app_id}")
         full_applicant_data = full_app_resp.json()
     except Exception as e:
         logging.warning(f"Ошибка Detail API для {app_id}: {e}")
@@ -223,7 +223,7 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
 
         account_id = accounts_response.json()["items"][0]["id"]
 
-        sources_raw = await _fetch_all_paginated(api_client, f"/v2/accounts/{account_id}/applicants/sources")
+        sources_raw = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/applicants/sources")
         sources_map = {item["id"]: item["name"] for item in sources_raw}
         logging.info(f"--- ЗАГРУЖЕНО ИСТОЧНИКОВ: {len(sources_map)} ---")
         if len(sources_map) == 0:
@@ -231,9 +231,6 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
 
         coworkers_raw = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/coworkers")
         coworkers_map = {item["id"]: item["name"] for item in coworkers_raw}
-
-        sources_raw = await _fetch_all_paginated(api_client, f"/v2/accounts/{account_id}/applicants/sources")
-        sources_map = {item["id"]: item["name"] for item in sources_raw}
 
         statuses_resp = await api_client.request("GET", f"/accounts/{account_id}/vacancies/statuses")
         raw_statuses = statuses_resp.json().get("items", [])
