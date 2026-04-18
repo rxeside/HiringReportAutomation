@@ -109,28 +109,39 @@ async def _process_applicant(
 ) -> Optional[Dict]:
     app_id = applicant["id"]
     vac_id = vacancy["id"]
-    vac_name = "🚩 " + vacancy.get("position", "Без названия") if vacancy.get("priority") == 1 else vacancy.get(
-        "position", "Без названия")
+
+    full_applicant_data = {}
     try:
         full_app_resp = await api_client.request("GET", f"/v2/accounts/{account_id}/applicants/{app_id}")
         full_applicant_data = full_app_resp.json()
     except Exception as e:
-        logging.warning(f"Не удалось получить полную карточку для {app_id}: {e}")
+        logging.warning(f"Ошибка Detail API для {app_id}: {e}")
         full_applicant_data = applicant
 
-    first_name = applicant.get("first_name", "") or ""
-    last_name = applicant.get("last_name", "") or ""
-    full_name = f"{first_name} {last_name}".strip()
+    all_logs = []
+    try:
+        logs_url = f"/accounts/{account_id}/applicants/{app_id}/logs"
+        all_logs = await _fetch_all_paginated(api_client, logs_url, params={"vacancy": vac_id})
+    except:
+        pass
+
+    final_source = _extract_source(full_applicant_data, all_logs, sources_map)
+
+    first_name = full_applicant_data.get("first_name", "") or ""
+    last_name = full_applicant_data.get("last_name", "") or ""
 
     applicant_data = {
         "id": app_id,
-        "name": full_name,
-        "vacancy": vac_name, "vacancy_state": vacancy.get("state", "OPEN"),
-        "recruiter_id": recruiter_id, "source": "Не указан",
-        "created_at": applicant.get("created", datetime.now().isoformat()),
-        "last_activity_at": applicant.get("created", datetime.now().isoformat()),
+        "name": f"{first_name} {last_name}".strip(),
+        "vacancy": "🚩 " + vacancy.get("position", "Без названия") if vacancy.get("priority") == 1 else vacancy.get(
+            "position", "Без названия"),
+        "vacancy_state": vacancy.get("state", "OPEN"),
+        "recruiter_id": recruiter_id,
+        "source": final_source,
+        "created_at": full_applicant_data.get("created", datetime.now().isoformat()),
+        "last_activity_at": full_applicant_data.get("created", datetime.now().isoformat()),
         "current_status": None, "hf_status": None, "rejection_reason": None,
-        "offer_date": None, "hired_date": None, "is_hired": False, "logs": [],
+        "offer_date": None, "hired_date": None, "is_hired": False,
         "stage_history": "[]"
     }
 
@@ -211,6 +222,12 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
                 raise
 
         account_id = accounts_response.json()["items"][0]["id"]
+
+        sources_raw = await _fetch_all_paginated(api_client, f"/v2/accounts/{account_id}/applicants/sources")
+        sources_map = {item["id"]: item["name"] for item in sources_raw}
+        logging.info(f"--- ЗАГРУЖЕНО ИСТОЧНИКОВ: {len(sources_map)} ---")
+        if len(sources_map) == 0:
+            logging.error("СПРАВОЧНИК ИСТОЧНИКОВ ПУСТ! Проверьте права доступа или URL.")
 
         coworkers_raw = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/coworkers")
         coworkers_map = {item["id"]: item["name"] for item in coworkers_raw}
