@@ -3,7 +3,7 @@ import os
 import re
 
 # Путь к твоему .env файлу на продовой машине
-ENV_PATH = "/home/denis.leukhin/PycharmProjects/HiringReportAutomation/.env"
+ENV_PATH = "/home/denis.leukhin/HiringReportAutomation/.env"
 REFRESH_URL = "https://api.huntflow.ru/v2/token/refresh"
 
 
