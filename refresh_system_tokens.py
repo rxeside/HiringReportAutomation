@@ -1,40 +1,34 @@
 import requests
 import os
 import re
+import sys
 
-# Путь к твоему .env файлу на продовой машине
 ENV_PATH = "/home/denis.leukhin/HiringReportAutomation/.env"
 REFRESH_URL = "https://api.huntflow.ru/v2/token/refresh"
 
 
-def update_env_file(access_token, refresh_token):
+def main():
+    if not os.path.exists(ENV_PATH):
+        print(f"ОШИБКА: Файл {ENV_PATH} не найден")
+        sys.exit(1)
+
     with open(ENV_PATH, 'r') as f:
         content = f.read()
 
-    # Заменяем значения токенов в файле с помощью регулярок
-    content = re.sub(r'HUNTFLOW_ACCESS_TOKEN=.*', f'HUNTFLOW_ACCESS_TOKEN={access_token}', content)
-    content = re.sub(r'HUNTFLOW_REFRESH_TOKEN=.*', f'HUNTFLOW_REFRESH_TOKEN={refresh_token}', content)
+    refresh_match = re.search(r'HUNTFLOW_REFRESH_TOKEN=(.*)', content)
+    if not refresh_match:
+        print("ОШИБКА: HUNTFLOW_REFRESH_TOKEN не найден в .env")
+        sys.exit(1)
 
-    with open(ENV_PATH, 'w') as f:
-        f.write(content)
+    current_refresh_token = refresh_match.group(1).strip().strip('"').strip("'")
 
-
-def main():
-    # 1. Читаем текущий refresh_token из .env
-    with open(ENV_PATH, 'r') as f:
-        env_data = f.read()
-        refresh_match = re.search(r'HUNTFLOW_REFRESH_TOKEN=(.*)', env_data)
-        if not refresh_match:
-            print("ОШИБКА: Не нашел HUNTFLOW_REFRESH_TOKEN в .env")
-            return
-        current_refresh_token = refresh_match.group(1).strip()
-
-    print(f"Обновление токенов через Huntflow...")
+    print(f"Обновляем токены через Huntflow...")
     try:
         resp = requests.post(
             REFRESH_URL,
             headers={"Content-Type": "application/json"},
-            json={"refresh_token": current_refresh_token}
+            json={"refresh_token": current_refresh_token},
+            timeout=30
         )
 
         if resp.status_code == 200:
@@ -42,15 +36,21 @@ def main():
             new_access = data.get("access_token")
             new_refresh = data.get("refresh_token")
 
-            update_env_file(new_access, new_refresh)
-            print("УСПЕХ: .env файл обновлен новыми токенами.")
-            exit(0)
+            content = re.sub(r'HUNTFLOW_ACCESS_TOKEN=.*', f'HUNTFLOW_ACCESS_TOKEN={new_access}', content)
+            content = re.sub(r'HUNTFLOW_REFRESH_TOKEN=.*', f'HUNTFLOW_REFRESH_TOKEN={new_refresh}', content)
+
+            with open(ENV_PATH, 'w') as f:
+                f.write(content)
+
+            print("УСПЕХ: Токены в .env обновлены.")
+            sys.exit(0)
         else:
-            print(f"ОШИБКА API: {resp.text}")
-            exit(1)
+            print(f"ОШИБКА API: {resp.status_code} - {resp.text}")
+            sys.exit(1)
+
     except Exception as e:
-        print(f"СЕТЕВАЯ ОШИБКА: {e}")
-        exit(1)
+        print(f"ОШИБКА: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
