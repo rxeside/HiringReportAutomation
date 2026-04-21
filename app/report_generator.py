@@ -136,6 +136,7 @@ async def _process_applicant(
         "vacancy": "🚩 " + vacancy.get("position", "Без названия") if vacancy.get("priority") == 1 else vacancy.get(
             "position", "Без названия"),
         "vacancy_state": vacancy.get("state", "OPEN"),
+        "vacancy_created_at": vacancy.get("created"),
         "recruiter_id": recruiter_id,
         "source": final_source,
         "created_at": full_applicant_data.get("created", datetime.now().isoformat()),

@@ -56,7 +56,7 @@ class AnalyticsEngine:
 
             if not raw_df.empty:
                 self.df = raw_df.copy()
-                date_cols = ['created_at', 'last_activity_at', 'offer_date', 'hired_date']
+                date_cols = ['created_at', 'last_activity_at', 'offer_date', 'hired_date', 'vacancy_created_at']
                 for col in date_cols:
                     if col in self.df.columns:
                         self.df[col] = (pd.to_datetime(self.df[col], errors='coerce') + pd.Timedelta(
@@ -160,8 +160,8 @@ class AnalyticsEngine:
             })
             if count > 0: prev_hf = count
 
-        unique_pairs = unique_custom[['applicant_id', 'vacancy']].drop_duplicates()
-        filtered_df = self.df.merge(unique_pairs, on=['applicant_id', 'vacancy'])
+        unique_all_pairs = events_in_period[['applicant_id', 'vacancy']].drop_duplicates()
+        filtered_df = self.df.merge(unique_all_pairs, on=['applicant_id', 'vacancy'])
 
         rejections_flat = []
         rejections_stacked = {}
@@ -189,26 +189,29 @@ class AnalyticsEngine:
                     "probation": len(group[group['stage_index'] == 6])
                 })
 
-        hired_df = filtered_df[filtered_df['offer_date'].notnull()].copy()
+        hired_df = filtered_df[filtered_df['hired_date'].notnull()].copy()
         avg_time = 0
-        if not hired_df.empty:
-            diff = (hired_df['offer_date'] - hired_df['created_at']).dt.total_seconds() / 86400.0
+        if not hired_df.empty and 'vacancy_created_at' in hired_df.columns:
+            diff = (hired_df['hired_date'] - hired_df['vacancy_created_at']).dt.total_seconds() / 86400.0
             diff = diff[diff >= 0]
-            if not diff.empty: avg_time = diff.mean()
+            if not diff.empty:
+                avg_time = diff.mean()
 
         return {
             "total_candidates": total_candidates,
             "active_vacancies": int(events_in_period['vacancy'].nunique()),
             "funnel": funnel_data, "full_funnel": full_funnel_data,
             "rejections_flat": rejections_flat, "rejections_stacked": rejections_stacked,
-            "sources": sources_data, "avg_time_to_offer": round(avg_time, 1),
+            "sources": sources_data,
+            "avg_time_to_close": round(avg_time, 1),
+            "avg_time_to_offer": round(avg_time, 1),
             "coworkers": self.coworkers, "vacancies_list": sorted(self.df['vacancy'].unique().tolist())
         }
 
     def _empty_response(self):
         return {
             "total_candidates": 0, "active_vacancies": 0, "funnel": [], "full_funnel": [],
-            "rejections_flat": [], "rejections_stacked": {}, "sources": [], "avg_time_to_offer": 0,
+            "rejections_flat": [], "rejections_stacked": {}, "sources": [], "avg_time_to_offer": 0, "avg_time_to_close": 0,
             "coworkers": self.coworkers,
             "vacancies_list": sorted(self.df['vacancy'].unique().tolist()) if not self.df.empty else []
         }

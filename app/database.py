@@ -18,6 +18,8 @@ class Applicant(Base):
 
     vacancy = Column(String)
     vacancy_state = Column(String)
+    vacancy_created_at = Column(DateTime, nullable=True)
+
     recruiter_id = Column(Integer)
     source = Column(String)
 
