@@ -205,13 +205,10 @@ class AnalyticsEngine:
                 })
 
             rej_df = rej_df.copy()
-            # Если кандидат получил отказ без движения по воронке, он был на этапе "Новые"
             rej_df['hf_status'] = rej_df['hf_status'].fillna('Новые')
 
-            # Группируем по реальным этапам Хантфлоу, а не по кастомной воронке!
             rej_grouped = rej_df.groupby(['hf_status', 'rejection_reason']).size().unstack(fill_value=0)
 
-            # Сортируем этапы ровно в том порядке, в котором они идут в Хантфлоу
             available_stages = []
             if 'Новые' in rej_grouped.index:
                 available_stages.append('Новые')
@@ -220,7 +217,6 @@ class AnalyticsEngine:
                 if s in rej_grouped.index and s != 'Новые':
                     available_stages.append(s)
 
-            # Если вдруг попался удаленный/архивный статус, добавляем его в конец
             for s in rej_grouped.index:
                 if s not in available_stages:
                     available_stages.append(s)
@@ -245,18 +241,22 @@ class AnalyticsEngine:
 
         sources_data.sort(key=lambda x: x["total"], reverse=True)
 
-        hired_df = base_df[
+        hired_in_period = base_df[
             (base_df['hired_date'].notnull()) &
             (base_df['hired_date'] >= start) &
             (base_df['hired_date'] <= end)
             ].copy()
 
         avg_time = 0
-        if not hired_df.empty and 'vacancy_created_at' in hired_df.columns:
-            diff = (hired_df['hired_date'] - hired_df['vacancy_created_at']).dt.total_seconds() / 86400.0
-            diff = diff[diff >= 0]
-            if not diff.empty:
-                avg_time = diff.mean()
+        if not hired_in_period.empty:
+            h_dates = pd.to_datetime(hired_in_period['hired_date'])
+            v_dates = pd.to_datetime(hired_in_period['vacancy_created_at'])
+
+            diffs = (h_dates - v_dates).dt.total_seconds() / 86400.0
+            valid_diffs = diffs[diffs >= 0]
+
+            if not valid_diffs.empty:
+                avg_time = valid_diffs.mean()
 
         return {
             "total_candidates": total_candidates,

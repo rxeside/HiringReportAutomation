@@ -224,6 +224,16 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
 
         account_id = accounts_response.json()["items"][0]["id"]
 
+        logging.info("Сбор заявок (vacancy requests)...")
+        requests_raw = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/vacancy_requests")
+        vac_request_dates = {}
+        for req in requests_raw:
+            if req.get("vacancy"):
+                v_id = req["vacancy"]
+                req_created = req.get("created")
+                if v_id not in vac_request_dates or req_created < vac_request_dates[v_id]:
+                    vac_request_dates[v_id] = req_created
+
         sources_raw = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/applicants/sources")
         sources_map = {item["id"]: item["name"] for item in sources_raw}
         logging.info(f"--- ЗАГРУЖЕНО ИСТОЧНИКОВ: {len(sources_map)} ---")
@@ -285,19 +295,25 @@ async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
         async def process_vacancy(vacancy):
             vac_applicants = await _fetch_all_paginated(api_client, f"/accounts/{account_id}/applicants/search",
                                                         params={"vacancy": vacancy["id"]})
+
+            true_start_date = vac_request_dates.get(vacancy["id"]) or vacancy.get("created")
+
             tasks = []
             for app in vac_applicants:
-                async def sem_task(a=app, v=vacancy):
+                async def sem_task(a=app, v=vacancy, start_dt=true_start_date):
                     async with semaphore:
                         await asyncio.sleep(0.01)
                         rec_id = vacancy_recruiters.get(v["id"])
-                        return await _process_applicant(
+                        applicant_dict = await _process_applicant(
                             api_client, account_id, a, v,
                             statuses_map, rejections_map,
                             rec_id, first_hf_stage,
                             coworkers_map,
                             sources_map
                         )
+                        if applicant_dict:
+                            applicant_dict["vacancy_created_at"] = start_dt
+                        return applicant_dict
 
                 tasks.append(sem_task())
 
