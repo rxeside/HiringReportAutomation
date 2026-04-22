@@ -163,9 +163,36 @@ class AnalyticsEngine:
         unique_all_pairs = events_in_period[['applicant_id', 'vacancy']].drop_duplicates()
         filtered_df = self.df.merge(unique_all_pairs, on=['applicant_id', 'vacancy'])
 
+        if recruiter_filter:
+            t_ids = [int(x) for x in recruiter_filter]
+        else:
+            t_ids = list(self.coworkers.keys())
+
+        apps_from_vacancies = self.df[self.df['recruiter_id'].isin(t_ids)]['applicant_id']
+        apps_from_events = self.events_df[self.events_df['recruiter_id'].isin(t_ids)]['applicant_id']
+        valid_app_ids = set(apps_from_vacancies).union(set(apps_from_events))
+
+        base_df = self.df[self.df['applicant_id'].isin(valid_app_ids)].copy()
+
+        if vacancy_filter:
+            base_df = base_df[base_df['vacancy'].isin(vacancy_filter)]
+        if state_filter:
+            base_df = base_df[base_df['vacancy_state'].isin(state_filter)]
+
         rejections_flat = []
         rejections_stacked = {}
-        rej_df = filtered_df[filtered_df['rejection_reason'].notnull()]
+
+        last_logs = events_in_period.sort_values('date').groupby(['applicant_id', 'vacancy']).last().reset_index()
+        valid_rej_pairs = last_logs[['applicant_id', 'vacancy']].drop_duplicates()
+
+        rej_df = self.df.merge(valid_rej_pairs, on=['applicant_id', 'vacancy'], how='inner')
+
+        rej_df = rej_df[
+            (rej_df['rejection_reason'].notnull()) &
+            (rej_df['last_activity_at'] >= start) &
+            (rej_df['last_activity_at'] <= end)
+            ]
+
         if not rej_df.empty:
             total_rej = len(rej_df)
             rej_counts = rej_df['rejection_reason'].value_counts().reset_index()
@@ -176,20 +203,54 @@ class AnalyticsEngine:
                     "count": row['count'],
                     "percent": f"{round((row['count'] / total_rej) * 100, 1)}%"
                 })
-            rej_grouped = rej_df.groupby(['current_status', 'rejection_reason']).size().unstack(fill_value=0)
-            available_stages = [s for s in FUNNEL_STAGES_ORDER if s in rej_grouped.index]
+
+            rej_df = rej_df.copy()
+            # Если кандидат получил отказ без движения по воронке, он был на этапе "Новые"
+            rej_df['hf_status'] = rej_df['hf_status'].fillna('Новые')
+
+            # Группируем по реальным этапам Хантфлоу, а не по кастомной воронке!
+            rej_grouped = rej_df.groupby(['hf_status', 'rejection_reason']).size().unstack(fill_value=0)
+
+            # Сортируем этапы ровно в том порядке, в котором они идут в Хантфлоу
+            available_stages = []
+            if 'Новые' in rej_grouped.index:
+                available_stages.append('Новые')
+
+            for s in self.statuses_order:
+                if s in rej_grouped.index and s != 'Новые':
+                    available_stages.append(s)
+
+            # Если вдруг попался удаленный/архивный статус, добавляем его в конец
+            for s in rej_grouped.index:
+                if s not in available_stages:
+                    available_stages.append(s)
+
             rejections_stacked = rej_grouped.reindex(available_stages).to_dict(orient='index')
 
         sources_data = []
-        if not filtered_df.empty:
-            for source, group in filtered_df.groupby('source'):
+
+        sources_df = base_df[
+            (base_df['created_at'] >= start) &
+            (base_df['created_at'] <= end)
+            ]
+
+        if not sources_df.empty:
+            for source, group in sources_df.groupby('source'):
                 sources_data.append({
-                    "source": str(source), "total": len(group),
+                    "source": str(source),
+                    "total": len(group),
                     "hired": len(group[group['stage_index'] >= 5]),
                     "probation": len(group[group['stage_index'] == 6])
                 })
 
-        hired_df = filtered_df[filtered_df['hired_date'].notnull()].copy()
+        sources_data.sort(key=lambda x: x["total"], reverse=True)
+
+        hired_df = base_df[
+            (base_df['hired_date'].notnull()) &
+            (base_df['hired_date'] >= start) &
+            (base_df['hired_date'] <= end)
+            ].copy()
+
         avg_time = 0
         if not hired_df.empty and 'vacancy_created_at' in hired_df.columns:
             diff = (hired_df['hired_date'] - hired_df['vacancy_created_at']).dt.total_seconds() / 86400.0
@@ -200,12 +261,15 @@ class AnalyticsEngine:
         return {
             "total_candidates": total_candidates,
             "active_vacancies": int(events_in_period['vacancy'].nunique()),
-            "funnel": funnel_data, "full_funnel": full_funnel_data,
-            "rejections_flat": rejections_flat, "rejections_stacked": rejections_stacked,
+            "funnel": funnel_data,
+            "full_funnel": full_funnel_data,
+            "rejections_flat": rejections_flat,
+            "rejections_stacked": rejections_stacked,
             "sources": sources_data,
             "avg_time_to_close": round(avg_time, 1),
             "avg_time_to_offer": round(avg_time, 1),
-            "coworkers": self.coworkers, "vacancies_list": sorted(self.df['vacancy'].unique().tolist())
+            "coworkers": self.coworkers,
+            "vacancies_list": sorted(self.df['vacancy'].unique().tolist())
         }
 
     def _empty_response(self):
