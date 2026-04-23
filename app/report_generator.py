@@ -147,8 +147,9 @@ async def _process_applicant(
     }
 
     try:
-        logs_url = f"/accounts/{account_id}/applicants/{app_id}/logs"
-        all_logs = await _fetch_all_paginated(api_client, logs_url, params={"vacancy": vac_id})
+        if not all_logs:
+            logs_url = f"/accounts/{account_id}/applicants/{app_id}/logs"
+            all_logs = await _fetch_all_paginated(api_client, logs_url, params={"vacancy": vac_id})
 
         if all_logs:
             sorted_all_logs = sorted(all_logs, key=lambda x: x.get("created", ""))
@@ -165,11 +166,12 @@ async def _process_applicant(
 
         for log in status_logs:
             hf_status_name = statuses_map.get(log.get("status"))
-            if hf_status_name not in TRASH_STATUSES: last_real_hf_status = hf_status_name
+            if hf_status_name not in TRASH_STATUSES:
+                last_real_hf_status = hf_status_name
 
             if hf_status_name:
                 our_stage_name = HUNTFLOW_STATUSES_TO_COLUMNS.get(hf_status_name)
-                log_date = log.get("created")
+                log_date = log.get("employment_date") or log.get("created")
 
                 account_info = log.get("account_info", {})
                 log_name = account_info.get("name") if account_info else None
@@ -186,15 +188,20 @@ async def _process_applicant(
                     curr_idx = FUNNEL_STAGES_ORDER.index(applicant_data["current_status"]) if applicant_data[
                                                                                                   "current_status"] in FUNNEL_STAGES_ORDER else -1
                     new_idx = FUNNEL_STAGES_ORDER.index(our_stage_name) if our_stage_name in FUNNEL_STAGES_ORDER else -1
-                    if new_idx >= curr_idx: applicant_data["current_status"] = our_stage_name
-                    if our_stage_name == "выставлен оффер" and not applicant_data["offer_date"]: applicant_data[
-                        "offer_date"] = log_date
+
+                    if new_idx >= curr_idx:
+                        applicant_data["current_status"] = our_stage_name
+
+                    if our_stage_name == "выставлен оффер" and not applicant_data["offer_date"]:
+                        applicant_data["offer_date"] = log_date
+
                     if our_stage_name == "вышел на работу" and not applicant_data["hired_date"]:
                         applicant_data["hired_date"] = log_date
                         applicant_data["is_hired"] = True
 
             rej_id = log.get("rejection_reason")
-            if rej_id: applicant_data["rejection_reason"] = rejections_map.get(rej_id, f"Неизвестно ({rej_id})")
+            if rej_id:
+                applicant_data["rejection_reason"] = rejections_map.get(rej_id, f"Неизвестно ({rej_id})")
 
         applicant_data["stage_history"] = json.dumps(stage_history, ensure_ascii=False)
         applicant_data["hf_status"] = last_real_hf_status
