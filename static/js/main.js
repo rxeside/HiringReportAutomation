@@ -31,7 +31,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const dateStartInput = document.getElementById('date-start');
     const today = new Date();
     const pastDate = new Date();
-    pastDate.setDate(today.getDate() - 30);
+    pastDate.setDate(today.getDate() - 90);
     dateEndInput.valueAsDate = today;
     dateStartInput.valueAsDate = pastDate;
 
