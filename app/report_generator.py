@@ -147,9 +147,8 @@ async def _process_applicant(
     }
 
     try:
-        if not all_logs:
-            logs_url = f"/accounts/{account_id}/applicants/{app_id}/logs"
-            all_logs = await _fetch_all_paginated(api_client, logs_url, params={"vacancy": vac_id})
+        logs_url = f"/accounts/{account_id}/applicants/{app_id}/logs"
+        all_logs = await _fetch_all_paginated(api_client, logs_url, params={"vacancy": vac_id})
 
         if all_logs:
             sorted_all_logs = sorted(all_logs, key=lambda x: x.get("created", ""))
@@ -166,12 +165,15 @@ async def _process_applicant(
 
         for log in status_logs:
             hf_status_name = statuses_map.get(log.get("status"))
-            if hf_status_name not in TRASH_STATUSES:
-                last_real_hf_status = hf_status_name
+            if hf_status_name not in TRASH_STATUSES: last_real_hf_status = hf_status_name
 
             if hf_status_name:
                 our_stage_name = HUNTFLOW_STATUSES_TO_COLUMNS.get(hf_status_name)
-                log_date = log.get("employment_date") or log.get("created")
+
+                log_date = log.get("created")
+
+                if our_stage_name == "вышел на работу" and log.get("employment_date"):
+                    log_date = log.get("employment_date")
 
                 account_info = log.get("account_info", {})
                 log_name = account_info.get("name") if account_info else None
@@ -200,8 +202,7 @@ async def _process_applicant(
                         applicant_data["is_hired"] = True
 
             rej_id = log.get("rejection_reason")
-            if rej_id:
-                applicant_data["rejection_reason"] = rejections_map.get(rej_id, f"Неизвестно ({rej_id})")
+            if rej_id: applicant_data["rejection_reason"] = rejections_map.get(rej_id, f"Неизвестно ({rej_id})")
 
         applicant_data["stage_history"] = json.dumps(stage_history, ensure_ascii=False)
         applicant_data["hf_status"] = last_real_hf_status
