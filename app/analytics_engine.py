@@ -59,8 +59,9 @@ class AnalyticsEngine:
                 date_cols = ['created_at', 'last_activity_at', 'offer_date', 'hired_date', 'vacancy_created_at']
                 for col in date_cols:
                     if col in self.df.columns:
-                        self.df[col] = (pd.to_datetime(self.df[col], errors='coerce') + pd.Timedelta(
-                            hours=3)).dt.tz_localize(None)
+                        self.df[col] = pd.to_datetime(self.df[col], errors='coerce', utc=True)
+                        self.df[col] = (self.df[col] + pd.Timedelta(hours=3)).dt.tz_localize(None)
+
                         if col == 'last_activity_at':
                             self.df['last_activity_at'] = self.df['last_activity_at'].fillna(self.df['created_at'])
 
@@ -85,10 +86,16 @@ class AnalyticsEngine:
                             "custom_stage": ev.get("custom_stage"),
                             "date": ev.get("date")
                         })
+
                 self.events_df = pd.DataFrame(events)
                 if not self.events_df.empty:
-                    self.events_df['date'] = (pd.to_datetime(self.events_df['date'], errors='coerce') + pd.Timedelta(
-                        hours=3)).dt.tz_localize(None)
+                    def _parse_event_date(val):
+                        if not val: return pd.NaT
+                        dt = pd.to_datetime(val, errors='coerce', utc=True)
+                        return (dt + pd.Timedelta(hours=3)).tz_localize(None)
+
+                    self.events_df['date'] = self.events_df['date'].apply(_parse_event_date)
+                    self.events_df = self.events_df.dropna(subset=['date'])
 
         except Exception as e:
             pass
@@ -249,10 +256,7 @@ class AnalyticsEngine:
 
         avg_time = 0
         if not hired_in_period.empty:
-            h_dates = pd.to_datetime(hired_in_period['hired_date'])
-            v_dates = pd.to_datetime(hired_in_period['vacancy_created_at'])
-
-            diffs = (h_dates - v_dates).dt.total_seconds() / 86400.0
+            diffs = (hired_in_period['hired_date'] - hired_in_period['vacancy_created_at']).dt.total_seconds() / 86400.0
             valid_diffs = diffs[diffs >= 0]
 
             if not valid_diffs.empty:
