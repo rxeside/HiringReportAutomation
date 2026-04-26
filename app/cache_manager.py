@@ -23,7 +23,9 @@ def _parse_date(date_str):
     if not date_str:
         return None
     try:
-        return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+        if 'T' in str(date_str):
+            return datetime.fromisoformat(str(date_str).replace('Z', '+00:00'))
+        return datetime.strptime(str(date_str), '%Y-%m-%d').replace(tzinfo=timezone.utc)
     except Exception:
         return None
 
@@ -57,6 +59,7 @@ async def update_cached_data() -> None:
                             name=a.get('name', 'Без имени'),
                             vacancy=a['vacancy'],
                             vacancy_state=a['vacancy_state'],
+                            vacancy_created_at=_parse_date(a.get('vacancy_created_at')),
                             recruiter_id=a['recruiter_id'],
                             source=a['source'],
                             created_at=_parse_date(a.get('created_at')),
