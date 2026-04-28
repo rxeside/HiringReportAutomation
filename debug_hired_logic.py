@@ -3,75 +3,75 @@ import httpx
 import pandas as pd
 from sqlalchemy import create_engine
 from datetime import datetime
+import json
 
 token = "ca63999a722d5bf09c4c4c211cca85f749734d7bb165b14cf779c4f8bda9625a"
 
-async def get_my_vacancies_from_api():
-    headers = {"Authorization": f"Bearer {token}"}
-    async with httpx.AsyncClient() as client:
-        acc_resp = await client.get("https://api.huntflow.ru/v2/accounts", headers=headers)
-        account_id = acc_resp.json()["items"][0]["id"]
-
-        v_resp = await client.get(
-            f"https://api.huntflow.ru/v2/accounts/{account_id}/vacancies",
-            headers=headers,
-            params={"mine": "true", "count": 100}
-        )
-        return [v['position'] for v in v_resp.json().get('items', [])]
-
-
-def run_debug():
-    print("⏳ Запрашиваю список ваших вакансий напрямую из Huntflow API...")
-    try:
-        loop = asyncio.get_event_loop()
-        api_vac_names = loop.run_until_complete(get_my_vacancies_from_api())
-    except Exception as e:
-        print(f"❌ Ошибка API: {e}")
+async def run_debug():
+    if not token:
+        print("❌ Ошибка: Укажите токен")
         return
 
-    print(f"✅ Найдено вакансий в API, где вы участник: {len(api_vac_names)}")
+    headers = {"Authorization": f"Bearer {token}"}
+    base_url = "https://api.huntflow.ru/v2"
 
-    # Подключаемся к нашей базе
-    engine = create_engine("sqlite:///cache/huntflow.db")
-    df = pd.read_sql_table("applicants", engine)
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        acc_resp = await client.get(f"{base_url}/accounts", headers=headers)
+        if acc_resp.status_code != 200:
+            print(f"❌ Ошибка авторизации: {acc_resp.text}")
+            return
 
-    # Обрабатываем даты как в движке
-    df['created_clean'] = (
-                pd.to_datetime(df['created_at'], errors='coerce', utc=True) + pd.Timedelta(hours=3)).dt.tz_localize(
-        None)
+        account_id = acc_resp.json()["items"][0]["id"]
+        me_resp = await client.get(f"{base_url}/me", headers=headers)
+        my_id = me_resp.json()["id"]
+        my_name = me_resp.json()["name"]
+        print(f"✅ Вы вошли как: {my_name} (ID: {my_id})")
 
-    START = datetime(2026, 3, 1)
-    END = datetime(2026, 3, 31, 23, 59, 59)
+        print("⏳ Запрашиваю список ваших вакансий из API...")
+        v_resp = await client.get(f"{base_url}/accounts/{account_id}/vacancies",
+                                  headers=headers, params={"mine": "true", "count": 100})
 
-    df['vacancy_clean'] = df['vacancy'].str.replace('🚩 ', '', regex=False)
+        if v_resp.status_code != 200:
+            print(f"❌ Ошибка получения вакансий: {v_resp.text}")
+            return
 
-    final_df = df[
-        (df['created_clean'] >= START) &
-        (df['created_clean'] <= END) &
-        (df['vacancy_clean'].isin(api_vac_names))
-        ].copy()
+        api_vac_ids = [v['id'] for v in v_resp.json().get('items', [])]
+        print(f"✅ Найдено вакансий в API, где вы участник: {len(api_vac_ids)}")
 
-    print("\n" + "=" * 60)
-    print(f"ИТОГОВЫЙ РАСЧЕТ (По списку вакансий из API):")
-    print(f"Всего кандидатов: {len(final_df)} (Цель: 171)")
-    print("=" * 60)
+        engine = create_engine("sqlite:///cache/huntflow.db")
+        df = pd.read_sql_table("applicants", engine)
 
-    if not final_df.empty:
-        def map_source(s):
-            if s == 'Не указан' or not s: return 'Другой'
-            if 'Telegram' in s: return 'Другой'
-            return s
+        df['created_clean'] = (
+                    pd.to_datetime(df['created_at'], errors='coerce', utc=True) + pd.Timedelta(hours=3)).dt.tz_localize(
+            None)
 
-        final_df['source_hf'] = final_df['source'].apply(map_source)
-        summary = final_df['source_hf'].value_counts()
-        print(summary.to_string())
+        START = datetime(2026, 3, 1)
+        END = datetime(2026, 3, 31, 23, 59, 59)
 
-        print("\nСверка с Хантфлоу:")
-        target = {"Отклик с HeadHunter": 114, "HeadHunter": 50, "Другой": 4, "Рекомендация внутренняя": 2, "Политех": 1}
-        for src, val in target.items():
-            curr = summary.get(src, 0)
-            print(f"{'✅' if curr == val else '❌'} {src}: {curr} (Нужно: {val})")
+        march_apps = df[(df['created_clean'] >= START) & (df['created_clean'] <= END)].copy()
+
+        api_vac_names = [v['position'] for v in v_resp.json().get('items', [])]
+
+        df['vac_simple'] = df['vacancy'].str.replace('🚩 ', '', regex=False)
+
+        final_df = march_apps[march_apps['vacancy'].str.replace('🚩 ', '', regex=False).isin(api_vac_names)]
+
+        print("\n" + "=" * 60)
+        print(f"ИТОГОВЫЙ РАСЧЕТ:")
+        print(f"Всего кандидатов на 'ваших' вакансиях: {len(final_df)} (Цель: 171)")
+        print("=" * 60)
+
+        if not final_df.empty:
+            summary = final_df['source'].value_counts()
+            print(summary.to_string())
+
+            print("\nСверка с Хантфлоу (171):")
+            target = {"Отклик с HeadHunter": 114, "HeadHunter": 50, "Рекомендация внутренняя": 2, "Политех": 1}
+            for src, val in target.items():
+                curr = summary.get(src, 0)
+                status = "✅" if curr == val else "❌"
+                print(f"{status} {src}: {curr} (Нужно: {val})")
 
 
 if __name__ == "__main__":
-    run_debug()
+    asyncio.run(run_debug())
