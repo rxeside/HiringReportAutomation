@@ -128,7 +128,8 @@ function updateFunnelUI() {
 function updateKPI(data) {
     document.getElementById('kpi-total').textContent = data.total_candidates;
     document.getElementById('kpi-vacancies').textContent = data.active_vacancies;
-    document.getElementById('kpi-time').innerHTML = `${data.avg_time_to_close} <span class="unit">календ. дн.</span>`;
+    const roundedTime = Math.round(data.avg_time_to_close || 0);
+    document.getElementById('kpi-time').innerHTML = `${roundedTime} <span class="unit">календ. дн.</span>`;
 }
 
 function renderFunnelChart(funnelData) {
