@@ -1,48 +1,60 @@
+import asyncio
+import httpx
 import pandas as pd
 from sqlalchemy import create_engine
 from datetime import datetime
 
-# Настройки
-START = datetime(2026, 3, 1)
-END = datetime(2026, 3, 31, 23, 59, 59)
-TARGET_RECRUITER_NAME = "Анастасия Прокопьева"
+# ВСТАВЬ СВОЙ ТОКЕН
+token = ""
 
 
-def debug_final_171():
+async def get_my_vacancies_from_api():
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient() as client:
+        acc_resp = await client.get("https://api.huntflow.ru/v2/accounts", headers=headers)
+        account_id = acc_resp.json()["items"][0]["id"]
+
+        v_resp = await client.get(
+            f"https://api.huntflow.ru/v2/accounts/{account_id}/vacancies",
+            headers=headers,
+            params={"mine": "true", "count": 100}
+        )
+        return [v['position'] for v in v_resp.json().get('items', [])]
+
+
+def run_debug():
+    print("⏳ Запрашиваю список ваших вакансий напрямую из Huntflow API...")
+    try:
+        loop = asyncio.get_event_loop()
+        api_vac_names = loop.run_until_complete(get_my_vacancies_from_api())
+    except Exception as e:
+        print(f"❌ Ошибка API: {e}")
+        return
+
+    print(f"✅ Найдено вакансий в API, где вы участник: {len(api_vac_names)}")
+
+    # Подключаемся к нашей базе
     engine = create_engine("sqlite:///cache/huntflow.db")
     df = pd.read_sql_table("applicants", engine)
-    coworkers = pd.read_sql_table("coworkers", engine)
 
-    rec_row = coworkers[coworkers['name'].str.contains(TARGET_RECRUITER_NAME, na=False)]
-    rec_id = int(rec_row.iloc[0]['id'])
-
+    # Обрабатываем даты как в движке
     df['created_clean'] = (
                 pd.to_datetime(df['created_at'], errors='coerce', utc=True) + pd.Timedelta(hours=3)).dt.tz_localize(
         None)
 
-    print("📊 Ищу 'свои' вакансии по активности...")
+    START = datetime(2026, 3, 1)
+    END = datetime(2026, 3, 31, 23, 59, 59)
 
-    vac_activity = {}
-    for _, row in df.iterrows():
-        if f'"recruiter_id": {rec_id}' in str(row['stage_history']):
-            v = row['vacancy']
-            vac_activity[v] = vac_activity.get(v, 0) + 1
+    df['vacancy_clean'] = df['vacancy'].str.replace('🚩 ', '', regex=False)
 
-    active_vacs = [v for v, count in vac_activity.items() if count > 0]
-
-    def is_171_candidate(row):
-        if row['recruiter_id'] == rec_id: return True
-        if f'"recruiter_id": {rec_id}' in str(row['stage_history']): return True
-        if (row['recruiter_id'] == 0 or pd.isna(row['recruiter_id'])) and row['vacancy'] in active_vacs: return True
-        return False
-
-    march_apps = df[(df['created_clean'] >= START) & (df['created_clean'] <= END)].copy()
-    march_apps['is_target'] = march_apps.apply(is_171_candidate, axis=1)
-
-    final_df = march_apps[march_apps['is_target'] == True]
+    final_df = df[
+        (df['created_clean'] >= START) &
+        (df['created_clean'] <= END) &
+        (df['vacancy_clean'].isin(api_vac_names))
+        ].copy()
 
     print("\n" + "=" * 60)
-    print(f"ИТОГОВЫЙ РАСЧЕТ:")
+    print(f"ИТОГОВЫЙ РАСЧЕТ (По списку вакансий из API):")
     print(f"Всего кандидатов: {len(final_df)} (Цель: 171)")
     print("=" * 60)
 
@@ -64,4 +76,4 @@ def debug_final_171():
 
 
 if __name__ == "__main__":
-    debug_final_171()
+    run_debug()
