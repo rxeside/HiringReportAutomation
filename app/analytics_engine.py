@@ -248,15 +248,16 @@ class AnalyticsEngine:
 
         sources_data.sort(key=lambda x: x["total"], reverse=True)
 
-        hired_in_period = base_df[
-            (base_df['hired_date'].notnull()) &
-            (base_df['hired_date'] >= start) &
-            (base_df['hired_date'] <= end)
-            ].copy()
+        hire_events = events_in_period[events_in_period['custom_stage'] == 'вышел на работу']
+
+        hire_pairs = hire_events[['applicant_id', 'vacancy']].drop_duplicates()
+
+        hired_for_calc = self.df.merge(hire_pairs, on=['applicant_id', 'vacancy'], how='inner')
 
         avg_time = 0
-        if not hired_in_period.empty:
-            diffs = (hired_in_period['hired_date'] - hired_in_period['vacancy_created_at']).dt.total_seconds() / 86400.0
+        if not hired_for_calc.empty:
+            diffs = (hired_for_calc['hired_date'] - hired_for_calc['vacancy_created_at']).dt.total_seconds() / 86400.0
+
             valid_diffs = diffs[diffs >= 0]
 
             if not valid_diffs.empty:
