@@ -271,8 +271,8 @@ class AnalyticsEngine:
             "rejections_flat": rejections_flat,
             "rejections_stacked": rejections_stacked,
             "sources": sources_data,
-            "avg_time_to_close": round(avg_time, 1),
-            "avg_time_to_offer": round(avg_time, 1),
+            "avg_time_to_close": int(avg_time, 1),
+            "avg_time_to_offer": int(avg_time, 1),
             "coworkers": self.coworkers,
             "vacancies_list": sorted(self.df['vacancy'].unique().tolist())
         }
