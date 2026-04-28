@@ -1,85 +1,64 @@
 import pandas as pd
-import json
 from sqlalchemy import create_engine
 from datetime import datetime
 
-TARGET_NAME = "Анастасия Прокопьева"
-START = datetime(2026, 3, 1)
-END = datetime(2026, 3, 31, 23, 59, 59)
+target_names_list = [
+    "Glotov", "Kiselev", "Безгачёва", "Бова", "Бородина", "Власова", "Война",
+    "Гогорева", "Григорьева", "Гриценко", "Зайцева", "Касьянов", "Ким",
+    "Ковряженкова", "Курбатова", "Лавренко", "Липкина", "Любко", "Магомедова",
+    "Марковская", "Матвеева", "Нестеров", "Нехаев", "Никишина", "Николаева",
+    "Панова", "Пантелеева", "Романов", "Савин", "Сидорова", "Смирнова",
+    "Солодовник", "Ткачук", "Чаюсупов", "Черепанов", "Чибисова", "Шлапак",
+    "Шопина", "Шпичак", "Шумный", "Шумских"
+]
 
 
-def belongs_to_recruiter(recruiter_id_in_db, stage_history_json, target_parts, target_id):
-    if str(recruiter_id_in_db) == str(target_id):
-        return True
-
-    try:
-        if f'"recruiter_id": {target_id}' in str(stage_history_json):
-            return True
-    except:
-        pass
-    return False
-
-
-def debug_final_sources():
+def debug_by_names():
     engine = create_engine("sqlite:///cache/huntflow.db")
-    print("🛰️ Загрузка данных из базы...")
     df = pd.read_sql_table("applicants", engine)
-    coworkers = pd.read_sql_table("coworkers", engine)
 
-    target_parts = TARGET_NAME.lower().split()
-    target_id = None
-    for _, cw in coworkers.iterrows():
-        cw_name_lower = cw['name'].lower()
-        if all(part in cw_name_lower for part in target_parts):
-            target_id = cw['id']
-            break
+    print(f"🔎 Ищу {len(target_names_list)} человек из твоего списка в базе...")
 
-    print(f"✅ Определен ID рекрутера: {target_id}")
+    found_apps = []
+    for surname in target_names_list:
+        match = df[df['name'].str.contains(surname, case=False, na=False)]
+        if not match.empty:
+            found_apps.append(match)
+
+    if not found_apps:
+        print("❌ Никого не нашли. Проверь базу.")
+        return
+
+    found_df = pd.concat(found_apps).drop_duplicates(subset=['applicant_id', 'vacancy'])
+    print(f"✅ Найдено в базе: {len(found_df)} из {len(target_names_list)}")
+
+    analysis = found_df.groupby(['vacancy', 'recruiter_id']).size().reset_index(name='count')
+    analysis = analysis.sort_values('count', ascending=False)
+
+    print("\n📊 АНАЛИЗ ВАКАНСИЙ ЭТИХ ЛЮДЕЙ:")
+    print("-" * 80)
+    print(f"{'Название вакансии':<50} | {'ID Рекр':<10} | {'Кол-во'}")
+    print("-" * 80)
+    for _, row in analysis.iterrows():
+        print(f"{row['vacancy'][:50]:<50} | {str(row['recruiter_id']):<10} | {row['count']}")
+
+    print("\n🚀 ПРОВЕРКА ГИПОТЕЗЫ 'ВАКАНСИИ ЦЕЛИКОМ':")
+    target_vacancies = found_df['vacancy'].unique()
 
     df['created_clean'] = (
                 pd.to_datetime(df['created_at'], errors='coerce', utc=True) + pd.Timedelta(hours=3)).dt.tz_localize(
         None)
+    START, END = datetime(2026, 3, 1), datetime(2026, 3, 31, 23, 59, 59)
 
-    march_df = df[(df['created_clean'] >= START) & (df['created_clean'] <= END)].copy()
+    march_apps_on_these_vacs = df[
+        (df['created_clean'] >= START) &
+        (df['created_clean'] <= END) &
+        (df['vacancy'].isin(target_vacancies))
+        ]
 
-    march_df['is_target'] = march_df.apply(
-        lambda row: belongs_to_recruiter(row['recruiter_id'], row['stage_history'], target_parts, target_id),
-        axis=1
-    )
-
-    vac_stats = []
-
-    final_df = march_df[march_df['is_target'] == True].copy()
-
-    print("\n" + "=" * 60)
-    print(f"ИТОГОВЫЙ РАСЧЕТ (Владение + Логи):")
-    print(f"Всего кандидатов: {len(final_df)} (Цель: 171)")
-    print("=" * 60)
-
-    if not final_df.empty:
-        target_sources = ["Отклик с HeadHunter", "HeadHunter", "Рекомендация внутренняя", "Политех"]
-        final_df['source_hf'] = final_df['source'].apply(lambda x: x if x in target_sources else "Другой")
-
-        summary = final_df['source_hf'].value_counts()
-        print(summary.to_string())
-
-        print("\n📊 СВЕРКА:")
-        target = {"Отклик с HeadHunter": 114, "HeadHunter": 50, "Другой": 4, "Рекомендация внутренняя": 2, "Политех": 1}
-        for src, val in target.items():
-            curr = summary.get(src, 0)
-            print(f"{'✅' if curr == val else '❌'} {src}: {curr} (Нужно: {val})")
-
-    if len(final_df) < 171:
-        print("\n🔍 Ищу кандидатов на 'совместных' вакансиях...")
-        nastya_touched_vacs = set(
-            df[df['stage_history'].str.contains(f'"recruiter_id": {target_id}', na=False)]['vacancy'].unique())
-
-        missing = march_df[(march_df['is_target'] == False) & (march_df['vacancy'].isin(nastya_touched_vacs))]
-        print(f"Найдено еще {len(missing)} кандидатов на 'её' вакансиях, но без её логов.")
-        if not missing.empty:
-            print("Топ вакансий с 'потерянными' людьми:")
-            print(missing['vacancy'].value_counts().head(5))
+    print(f"Всего кандидатов в марте на этих вакансиях: {len(march_apps_on_these_vacs)}")
+    print(march_apps_on_these_vacs['source'].value_counts())
 
 
 if __name__ == "__main__":
-    debug_final_sources()
+    debug_by_names()
