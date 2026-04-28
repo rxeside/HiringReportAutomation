@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 from datetime import datetime
 import json
 
-token = "ca63999a722d5bf09c4c4c211cca85f749734d7bb165b14cf779c4f8bda9625a"
+token = "69d1aaf232ee966ec79df7613ba02f9966d7c3d0a26f1cf5b65609315b31dd7e"
 
 async def run_debug():
     if not token:
