@@ -1,5 +1,4 @@
 import pandas as pd
-import json
 from sqlalchemy import create_engine
 from datetime import datetime
 
@@ -8,59 +7,53 @@ START = datetime(2026, 3, 1)
 END = datetime(2026, 3, 31, 23, 59, 59)
 TARGET_RECRUITER_NAME = "Анастасия Прокопьева"
 
-def debug_to_171():
+
+def debug_vacancy_membership():
     engine = create_engine("sqlite:///cache/huntflow.db")
     df = pd.read_sql_table("applicants", engine)
     coworkers = pd.read_sql_table("coworkers", engine)
 
-    # 1. Находим ID Анастасии
     rec_row = coworkers[coworkers['name'].str.contains(TARGET_RECRUITER_NAME, na=False)]
     rec_id = int(rec_row.iloc[0]['id'])
-    print(f"🔎 Ищем источники для {TARGET_RECRUITER_NAME} (ID: {rec_id})")
 
-    # 2. Обрабатываем даты создания
+    # Приводим даты
     df['created_clean'] = (
                 pd.to_datetime(df['created_at'], errors='coerce', utc=True) + pd.Timedelta(hours=3)).dt.tz_localize(
         None)
 
-    # 3. Фильтруем ВСЕХ кандидатов, пришедших в Марте
-    march_apps = df[(df['created_clean'] >= START) & (df['created_clean'] <= END)].copy()
-    print(f"Всего новых кандидатов в компании за Март: {len(march_apps)}")
+    # 1. Находим список ВСЕХ вакансий, к которым Анастасия имеет отношение
+    # (Где она либо владелец, либо хоть раз мелькнула в логах любого кандидата)
+    print(f"🔍 Определяю список вакансий Анастасии...")
 
-    # 4. ЛОГИКА АССОЦИАЦИИ:
-    # Кандидат считается Настиным, если:
-    # - Либо она владелец (recruiter_id)
-    # - Либо она есть в stage_history
+    nastya_vacancies = set(df[df['recruiter_id'] == rec_id]['vacancy'].unique())
 
-    def belongs_to_nastya(row):
-        # Условие 1: Владение
-        if row['recruiter_id'] == rec_id:
-            return True
+    # Добавляем вакансии, где она просто работала с людьми (через логи)
+    for _, row in df.iterrows():
+        if f'"recruiter_id": {rec_id}' in str(row['stage_history']):
+            nastya_vacancies.add(row['vacancy'])
 
-        # Условие 2: Участие (ищем ID в JSON истории)
-        try:
-            history_str = str(row['stage_history'])
-            if f'"recruiter_id": {rec_id}' in history_str:
-                return True
-        except:
-            pass
+    print(f"✅ Найдено вакансий с участием Анастасии: {len(nastya_vacancies)}")
 
-        return False
-
-    march_apps['is_nastya'] = march_apps.apply(belongs_to_nastya, axis=1)
-    final_df = march_apps[march_apps['is_nastya'] == True]
+    # 2. Берем ВСЕХ кандидатов марта на ЭТИХ вакансиях
+    march_apps = df[
+        (df['created_clean'] >= START) &
+        (df['created_clean'] <= END) &
+        (df['vacancy'].isin(nastya_vacancies))
+        ].copy()
 
     print("\n" + "=" * 60)
-    print(f"ИТОГОВЫЙ РЕЗУЛЬТАТ СКРИПТА:")
-    print(f"Всего найдено кандидатов: {len(final_df)}")
+    print(f"РЕЗУЛЬТАТ ПО ЛОГИКЕ 'УЧАСТИЕ В ВАКАНСИИ':")
+    print(f"Всего найдено кандидатов: {len(march_apps)}")
     print("=" * 60)
 
-    if not final_df.empty:
-        # Группируем как в Хантфлоу
-        summary = final_df['source'].value_counts()
+    if not march_apps.empty:
+        # Хантфлоу в отчетах маппит "Не указан" в "Другой"
+        march_apps['source_mapped'] = march_apps['source'].replace('Не указан', 'Другой')
+
+        summary = march_apps['source_mapped'].value_counts()
         print(summary.to_string())
 
-        print("\nСравнение с целью из Хантфлоу:")
+        print("\nСравнение с Хантфлоу (Цель: 171):")
         target = {
             "Отклик с HeadHunter": 114,
             "HeadHunter": 50,
@@ -76,4 +69,4 @@ def debug_to_171():
 
 
 if __name__ == "__main__":
-    debug_to_171()
+    debug_vacancy_membership()
