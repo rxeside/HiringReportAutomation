@@ -1,63 +1,60 @@
 import pandas as pd
-import json
 from sqlalchemy import create_engine
 from datetime import datetime
 
-# Настройки периода (как на фронтенде)
 START = datetime(2026, 3, 1)
 END = datetime(2026, 3, 31, 23, 59, 59)
+RECRUITER_NAME = "Татьяна Чихалова"
 
 
-def debug_hired():
+def audit_hire():
     engine = create_engine("sqlite:///cache/huntflow.db")
-    print("🛰️ Загрузка данных из базы...")
 
-    df = pd.read_sql("SELECT name, hired_date, current_status, stage_history FROM applicants WHERE is_hired = 1",
-                     engine)
+    df = pd.read_sql_table("applicants", engine)
+    coworkers = pd.read_sql_table("coworkers", engine)
 
-    if df.empty:
-        print("ОШИБКА: В базе вообще нет пометок 'is_hired = 1'. Проблема в парсере.")
+    rec_row = coworkers[coworkers['name'].str.contains(RECRUITER_NAME, na=False)]
+    if rec_row.empty:
+        print("❌ Рекрутер не найден")
+        return
+    rec_id = rec_row.iloc[0]['id']
+
+    def process_dt(val):
+        if not val: return pd.NaT
+        return (pd.to_datetime(val, errors='coerce', utc=True) + pd.Timedelta(hours=3)).tz_localize(None)
+
+    df['hired_date_clean'] = df['hired_date'].apply(process_dt)
+    df['vac_created_clean'] = df['vacancy_created_at'].apply(process_dt)
+
+    hired_march = df[
+        (df['recruiter_id'] == rec_id) &
+        (df['hired_date_clean'] >= START) &
+        (df['hired_date_clean'] <= END)
+        ].copy()
+
+    print(f"📊 АУДИТ НАЙМОВ: {RECRUITER_NAME} (Март 2026)")
+    print(f"Найдено человек в расчете: {len(hired_march)}")
+    print("-" * 120)
+
+    if hired_march.empty:
+        print("Странно, в этом периоде наймов не найдено.")
         return
 
-    print(f"✅ Всего нанятых в базе: {len(df)}")
+    total_days = 0
+    for _, row in hired_march.iterrows():
+        diff_seconds = (row['hired_date_clean'] - row['vac_created_clean']).total_seconds()
+        days = diff_seconds / 86400.0
+        total_days += days
 
-    df['hired_date_dt'] = pd.to_datetime(df['hired_date'], errors='coerce')
+        print(f" Кандидат:      {row['name']}")
+        print(f" Вакансия:       {row['vacancy']}")
+        print(f" Создана (DB):   {row['vac_created_clean']} (Сырая: {row['vacancy_created_at']})")
+        print(f" Нанят (DB):     {row['hired_date_clean']} (Сырая: {row['hired_date']})")
+        print(f" Срок закрытия:  {days:.2f} дн.")
+        print("-" * 40)
 
-    df['hired_date_shifted'] = (df['hired_date_dt'] + pd.Timedelta(hours=3)).dt.tz_localize(None)
-
-    print("\n🧐 Проверка конкретных дат (первые 5):")
-    print("-" * 100)
-    print(f"{'Имя':<25} | {'Сырая дата':<20} | {'После shift+3h':<20} | {'Входит в Март?'}")
-    print("-" * 100)
-
-    for _, row in df.head(10).iterrows():
-        in_march = START <= row['hired_date_shifted'] <= END
-        status = "✅ ДА" if in_march else "❌ НЕТ"
-        print(
-            f"{row['name'][:25]:<25} | {str(row['hired_date']):<20} | {str(row['hired_date_shifted']):<20} | {status}")
-
-    # 3. Проверка истории событий (events_df)
-    print("\n🔍 Проверка истории этапов (stage_history):")
-    all_events = []
-    for _, row in df.iterrows():
-        history = json.loads(row['stage_history'])
-        for ev in history:
-            if ev.get('custom_stage') == 'вышел на работу':
-                all_events.append({
-                    'name': row['name'],
-                    'date_in_history': ev.get('date')
-                })
-
-    events_df = pd.DataFrame(all_events)
-    if not events_df.empty:
-        events_df['date_dt'] = pd.to_datetime(events_df['date_in_history'], errors='coerce')
-        events_df['date_final'] = (events_df['date_dt'] + pd.Timedelta(hours=3)).dt.tz_localize(None)
-
-        march_events = events_df[(events_df['date_final'] >= START) & (events_df['date_final'] <= END)]
-        print(f"Наймов в марте через events_df: {len(march_events)}")
-    else:
-        print("❌ В stage_history не найдено этапов 'вышел на работу'!")
+    avg = total_days / len(hired_march)
+    print(f" ИТОГОВОЕ СРЕДНЕЕ В БАЗЕ: {avg:.1f} дн.")
 
 
-if __name__ == "__main__":
-    debug_hired()
+if __name__ == "__main__": audit_hire()
