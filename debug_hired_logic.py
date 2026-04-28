@@ -2,59 +2,60 @@ import pandas as pd
 from sqlalchemy import create_engine
 from datetime import datetime
 
+# Настройки
 START = datetime(2026, 3, 1)
 END = datetime(2026, 3, 31, 23, 59, 59)
-RECRUITER_NAME = "Татьяна Чихалова"
+TARGET_RECRUITER = "Анастасия Прокопьева"
 
-
-def audit_hire():
+def debug_sources():
     engine = create_engine("sqlite:///cache/huntflow.db")
-
     df = pd.read_sql_table("applicants", engine)
     coworkers = pd.read_sql_table("coworkers", engine)
 
-    rec_row = coworkers[coworkers['name'].str.contains(RECRUITER_NAME, na=False)]
+    # Находим ID Анастасии
+    rec_row = coworkers[coworkers['name'].str.contains(TARGET_RECRUITER, na=False)]
     if rec_row.empty:
-        print("❌ Рекрутер не найден")
+        print("Рекрутер не найден")
         return
     rec_id = rec_row.iloc[0]['id']
+    print(f"Анализ для: {TARGET_RECRUITER} (ID: {rec_id})")
 
-    def process_dt(val):
-        if not val: return pd.NaT
-        return (pd.to_datetime(val, errors='coerce', utc=True) + pd.Timedelta(hours=3)).tz_localize(None)
+    df['created_clean'] = (pd.to_datetime(df['created_at'], errors='coerce', utc=True) + pd.Timedelta(hours=3)).dt.tz_localize(None)
 
-    df['hired_date_clean'] = df['hired_date'].apply(process_dt)
-    df['vac_created_clean'] = df['vacancy_created_at'].apply(process_dt)
-
-    hired_march = df[
+    print("\n" + "="*60)
+    print(f"ВАРИАНТ 1: Только те, кто закреплен за Анастасией в базе")
+    print("="*60)
+    v1_df = df[
         (df['recruiter_id'] == rec_id) &
-        (df['hired_date_clean'] >= START) &
-        (df['hired_date_clean'] <= END)
-        ].copy()
+        (df['created_clean'] >= START) &
+        (df['created_clean'] <= END)
+    ]
+    print(f"Итого: {len(v1_df)} (Цель: 171)")
+    if not v1_df.empty:
+        print(v1_df['source'].value_counts().to_string())
 
-    print(f"📊 АУДИТ НАЙМОВ: {RECRUITER_NAME} (Март 2026)")
-    print(f"Найдено человек в расчете: {len(hired_march)}")
-    print("-" * 120)
+    print("\n" + "="*60)
+    print(f"ВАРИАНТ 2: Анастасия + Те, у кого НЕ указан рекрутер")
+    print("="*60)
+    v2_df = df[
+        ((df['recruiter_id'] == rec_id) | (df['recruiter_id'].isna()) | (df['recruiter_id'] == 0)) &
+        (df['created_clean'] >= START) &
+        (df['created_clean'] <= END)
+    ]
+    print(f"Итого: {len(v2_df)} (Цель: 171)")
 
-    if hired_march.empty:
-        print("Странно, в этом периоде наймов не найдено.")
-        return
+    print("\n" + "="*60)
+    print(f"ВАРИАНТ 3: Поиск 'потерянных' кандидатов")
+    print("="*60)
+    other_march = df[
+        (df['recruiter_id'] != rec_id) &
+        (df['created_clean'] >= START) &
+        (df['created_clean'] <= END)
+    ]
+    print(f"Всего других кандидатов в марте (на других рекрутерах): {len(other_march)}")
+    print("\nТоп вакансий марта, где Анастасия НЕ числится владельцем:")
+    if not other_march.empty:
+        print(other_march['vacancy'].value_counts().head(10).to_string())
 
-    total_days = 0
-    for _, row in hired_march.iterrows():
-        diff_seconds = (row['hired_date_clean'] - row['vac_created_clean']).total_seconds()
-        days = diff_seconds / 86400.0
-        total_days += days
-
-        print(f" Кандидат:      {row['name']}")
-        print(f" Вакансия:       {row['vacancy']}")
-        print(f" Создана (DB):   {row['vac_created_clean']} (Сырая: {row['vacancy_created_at']})")
-        print(f" Нанят (DB):     {row['hired_date_clean']} (Сырая: {row['hired_date']})")
-        print(f" Срок закрытия:  {days:.2f} дн.")
-        print("-" * 40)
-
-    avg = total_days / len(hired_march)
-    print(f" ИТОГОВОЕ СРЕДНЕЕ В БАЗЕ: {avg:.1f} дн.")
-
-
-if __name__ == "__main__": audit_hire()
+if __name__ == "__main__":
+    debug_sources()
