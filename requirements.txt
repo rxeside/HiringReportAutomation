@@ -12,3 +12,4 @@ aiofiles
 python-dotenv
 pandas
 SQLAlchemy
+pytz
