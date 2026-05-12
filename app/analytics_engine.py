@@ -257,11 +257,11 @@ class AnalyticsEngine:
         avg_time = 0
         if not hired_for_calc.empty:
             diffs = (hired_for_calc['hired_date'] - hired_for_calc['vacancy_created_at']).dt.total_seconds() / 86400.0
-
             valid_diffs = diffs[diffs >= 0]
-
             if not valid_diffs.empty:
                 avg_time = valid_diffs.mean()
+
+        final_avg = round(float(avg_time), 1) if pd.notnull(avg_time) else 0
 
         return {
             "total_candidates": total_candidates,
@@ -271,8 +271,8 @@ class AnalyticsEngine:
             "rejections_flat": rejections_flat,
             "rejections_stacked": rejections_stacked,
             "sources": sources_data,
-            "avg_time_to_close": round(avg_time, 1),
-            "avg_time_to_offer": round(avg_time, 1),
+            "avg_time_to_close": final_avg,
+            "avg_time_to_offer": final_avg,
             "coworkers": self.coworkers,
             "vacancies_list": sorted(self.df['vacancy'].unique().tolist())
         }

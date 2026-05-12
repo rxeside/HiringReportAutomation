@@ -20,6 +20,9 @@ class FileTokenProxy(AbstractTokenProxy):
         self._update_lock = asyncio.Lock()
         self._load_initial_tokens()
 
+    def get_access_token(self) -> str:
+        return self._access_token
+
     def _load_initial_tokens(self) -> None:
         if os.path.exists(TOKEN_FILE_PATH):
             try:

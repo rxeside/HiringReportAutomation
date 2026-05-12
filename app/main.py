@@ -1,4 +1,5 @@
 import logging
+import traceback
 from datetime import datetime
 from typing import List, Optional
 
@@ -80,7 +81,10 @@ async def get_analytics(
     try:
         s_date = datetime.strptime(start_date, "%Y-%m-%d")
         e_date = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": f"Invalid date format: {str(e)}"})
 
+    try:
         stats = engine.get_filtered_stats(
             start_date=s_date,
             end_date=e_date,
@@ -89,9 +93,10 @@ async def get_analytics(
             state_filter=states
         )
         return stats
-    except ValueError:
-        return {"error": "Invalid date format. Use YYYY-MM-DD"}
-
+    except Exception as e:
+        logging.error(f"Engine Error: {str(e)}")
+        logging.error(traceback.format_exc())
+        return JSONResponse(status_code=500, content={"error": f"Internal Calculation Error: {str(e)}"})
 
 @app.get("/api/filters")
 async def get_filters_data():
