@@ -46,10 +46,30 @@ class FileTokenProxy(AbstractTokenProxy):
     async def get_refresh_data(self) -> Dict[str, str]:
         return {"refresh_token": self._refresh_token}
 
+    async def check_token_validity(self) -> bool:
+        """Проверяет, работает ли текущий токен (запрос к /me)"""
+        if not self._access_token:
+            return False
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    "https://api.huntflow.ru/v2/me",
+                    headers={"Authorization": f"Bearer {self._access_token}"}
+                )
+                return resp.status_code == 200
+        except Exception:
+            return False
+
     async def refresh_tokens_manually(self) -> bool:
+        """Обновляет токен только если это действительно нужно"""
+        if await self.check_token_validity():
+            logging.info("✅ Токен еще валиден, обновление не требуется.")
+            return True
+
         async with self._update_lock:
-            logging.warning("🔄 Запуск автоматического обновления токена...")
+            logging.warning("🔄 Токен просрочен. Запуск обновления через Refresh Token...")
             if not self._refresh_token:
+                logging.error("❌ Нет Refresh токена для обновления!")
                 return False
 
             try:
@@ -72,13 +92,13 @@ class FileTokenProxy(AbstractTokenProxy):
                             "refresh_token": self._refresh_token
                         }, f, indent=4)
 
-                    logging.critical("✅ ТОКЕНЫ УСПЕШНО ОБНОВЛЕНЫ И СОХРАНЕНЫ В ФАЙЛ")
+                    logging.critical("✅ ТОКЕНЫ УСПЕШНО ОБНОВЛЕНЫ И СОХРАНЕНЫ")
                     return True
                 else:
-                    logging.error(f"❌ Ошибка API при обновлении: {response.text}")
+                    logging.error(f"❌ Ошибка Huntflow API: {response.text}")
                     return False
             except Exception as e:
-                logging.error(f"❌ Сетевая ошибка обновления: {e}")
+                logging.error(f"❌ Сетевая ошибка при обновлении: {e}")
                 return False
 
     async def update(self, data: Dict[str, Any]) -> None:

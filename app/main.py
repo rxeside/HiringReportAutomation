@@ -25,20 +25,18 @@ templates = Jinja2Templates(directory="templates")
 scheduler = AsyncIOScheduler()
 
 async def scheduled_report_update():
-    """
-    Функция, которую крон запускает в 00:00.
-    Сначала обновляет токен, затем скачивает данные.
-    """
-    logging.info("⏰ [CRON] Запуск планового ночного обновления...")
+    logging.info("⏰ [CRON] Проверка токенов перед обновлением...")
+    is_authorized = await token_proxy.refresh_tokens_manually()
 
-    token_success = await token_proxy.refresh_tokens_manually()
-
-    if token_success:
-        logging.info("✅ [CRON] Токен успешно обновлен. Начинаю сбор данных...")
+    if is_authorized:
+        logging.info("🚀 [CRON] Начинаю сбор данных...")
         await cache_manager.update_cached_data()
-        logging.info("✅ [CRON] Ночной отчет сформирован.")
+        logging.info("✅ [CRON] Отчет успешно обновлен.")
     else:
-        logging.error("❌ [CRON] Ошибка обновления токена. Сбор данных отменен.")
+        if await token_proxy.check_token_validity():
+            await cache_manager.update_cached_data()
+        else:
+            logging.error("❌ [CRON] Нет доступа к API. Обновление невозможно.")
 
 
 @app.on_event("startup")
