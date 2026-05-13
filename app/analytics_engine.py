@@ -216,17 +216,20 @@ class AnalyticsEngine:
 
             rej_grouped = rej_df.groupby(['hf_status', 'rejection_reason']).size().unstack(fill_value=0)
 
-            available_stages = []
+            raw_stages_list = []
+
             if 'Новые' in rej_grouped.index:
-                available_stages.append('Новые')
+                raw_stages_list.append('Новые')
 
             for s in self.statuses_order:
                 if s in rej_grouped.index and s != 'Новые':
-                    available_stages.append(s)
+                    raw_stages_list.append(s)
 
             for s in rej_grouped.index:
-                if s not in available_stages:
-                    available_stages.append(s)
+                if s not in raw_stages_list:
+                    raw_stages_list.append(s)
+
+            available_stages = list(dict.fromkeys(raw_stages_list))
 
             rejections_stacked = rej_grouped.reindex(available_stages).to_dict(orient='index')
 
