@@ -216,7 +216,7 @@ async def _process_applicant(
 
 async def generate_raw_analytics_data() -> Optional[Dict[str, Any]]:
     if not token_proxy._access_token: return None
-    api_client = HuntflowAPI("https://api.huntflow.ru", token_proxy=token_proxy, auto_refresh_tokens=True)
+    api_client = HuntflowAPI("https://api.huntflow.ru", token_proxy=token_proxy, auto_refresh_tokens=False)
 
     try:
         try:
