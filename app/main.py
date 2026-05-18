@@ -1,4 +1,5 @@
 import logging
+import sys
 import traceback
 from datetime import datetime
 from typing import List, Optional
@@ -15,8 +16,12 @@ from .analytics_engine import engine
 from . import cache_manager
 from .token_manager import token_proxy
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True
+)
 app = FastAPI(title="Hiring Report Dashboard 2.0")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -24,19 +29,29 @@ templates = Jinja2Templates(directory="templates")
 
 scheduler = AsyncIOScheduler()
 
-async def scheduled_report_update():
-    logging.info("⏰ [CRON] Проверка токенов перед обновлением...")
-    is_authorized = await token_proxy.refresh_tokens_manually()
 
-    if is_authorized:
-        logging.info("🚀 [CRON] Начинаю сбор данных...")
-        await cache_manager.update_cached_data()
-        logging.info("✅ [CRON] Отчет успешно обновлен.")
-    else:
-        if await token_proxy.check_token_validity():
+async def scheduled_report_update():
+    try:
+        logging.info("⏰ [CRON] Фоновое обновление запущено...")
+
+        is_authorized = await token_proxy.refresh_tokens_manually()
+        logging.info(f"Статус авторизации: {is_authorized}")
+
+        if is_authorized:
+            logging.info("🚀 [CRON] Вызываю cache_manager.update_cached_data()...")
             await cache_manager.update_cached_data()
+            logging.info("✅ [CRON] Обновление завершено успешно.")
         else:
-            logging.error("❌ [CRON] Нет доступа к API. Обновление невозможно.")
+            logging.error("❌ [CRON] Ошибка авторизации. Проверьте токены.")
+
+    except Exception as e:
+        logging.error(f"💥 КРИТИЧЕСКАЯ ОШИБКА В ФОНОВОЙ ЗАДАЧЕ: {str(e)}")
+        logging.error(traceback.format_exc())
+    finally:
+        # Это чтобы статус обновления точно сбросился в случае ошибки
+        # (Проверьте, есть ли такая функция в вашем cache_manager)
+        # cache_manager.force_stop_update()
+        pass
 
 
 @app.on_event("startup")
